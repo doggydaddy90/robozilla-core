@@ -1,0 +1,14 @@
+# Global hard limits (upper bounds) applied in addition to per-org and per-job limits.
+# The runtime fails closed if a JobContract exceeds these limits.
+#
+job_contract:
+  max_iterations_upper_bound: 500
+  max_runtime_seconds_upper_bound: 86400  # 24h
+  max_cost_upper_bound:
+    currency: USD
+    max_cost: 100.0
+  max_expires_in_seconds_upper_bound: 604800  # 7 days
+
+registry:
+  # If true, the runtime rejects jobs for org_id values that are not present in the org registry.
+  require_known_org: true

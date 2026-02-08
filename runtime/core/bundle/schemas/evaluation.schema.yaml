@@ -1,0 +1,363 @@
+# RoboZilla Evaluation Schema
+#
+# This is a JSON Schema (Draft 2020-12) expressed as YAML.
+#
+# Evaluations are the governance gate for job progression and completion.
+# Only Evaluations can authorize marking a job as completed (enforced by Flo via
+# JobContract.status.final_evaluation_ref).
+#
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://robozilla.ai/schemas/evaluation.schema.yaml
+title: RoboZilla Evaluation
+description: >-
+  Structured evaluation of artifacts and/or job progress. Evaluations determine
+  whether a job should continue, wait, fail, or complete. Evaluators may be
+  agents (with evaluator authority) or the system.
+type: object
+additionalProperties: false
+required:
+  - api_version
+  - kind
+  - metadata
+  - spec
+properties:
+  api_version:
+    type: string
+    const: robozilla.ai/v1alpha1
+    description: Document structure version.
+  kind:
+    type: string
+    const: Evaluation
+    description: Document type discriminator.
+  metadata:
+    $ref: '#/$defs/metadata'
+  spec:
+    $ref: '#/$defs/spec'
+
+$defs:
+  # --------
+  # Primitives
+  # --------
+  org_id:
+    type: string
+    minLength: 3
+    maxLength: 64
+    pattern: '^[a-z](?:[a-z0-9-]{1,62}[a-z0-9])$'
+
+  id_token:
+    type: string
+    minLength: 2
+    maxLength: 64
+    pattern: '^[a-z](?:[a-z0-9_.-]{0,62}[a-z0-9])$'
+
+  evaluation_id:
+    type: string
+    minLength: 1
+    maxLength: 128
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+
+  job_id:
+    type: string
+    minLength: 1
+    maxLength: 128
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+
+  artifact_id:
+    type: string
+    minLength: 1
+    maxLength: 128
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+
+  agent_id:
+    type: string
+    minLength: 3
+    maxLength: 64
+    pattern: '^[a-z](?:[a-z0-9-]{1,62}[a-z0-9])$'
+
+  uri_reference:
+    type: string
+    minLength: 1
+    maxLength: 2048
+    format: uri-reference
+
+  date_time:
+    type: string
+    format: date-time
+    maxLength: 64
+
+  confidence:
+    type: number
+    minimum: 0
+    maximum: 1
+
+  authority_level:
+    type: string
+    enum: [worker, org_lead, evaluator]
+
+  error_code:
+    type: string
+    minLength: 3
+    maxLength: 64
+    pattern: '^[A-Z][A-Z0-9_]{2,63}$'
+
+  # Canonical platform artifact categories (coarse).
+  artifact_type:
+    type: string
+    enum:
+      - report
+      - plan
+      - dataset
+      - message
+      - decision_record
+      - evidence
+      - diagnostic
+      - workflow_definition
+      - other
+
+  # --------
+  # Top-level blocks
+  # --------
+  metadata:
+    type: object
+    additionalProperties: false
+    required:
+      - evaluation_id
+      - org_id
+    properties:
+      evaluation_id:
+        $ref: '#/$defs/evaluation_id'
+      org_id:
+        $ref: '#/$defs/org_id'
+      title:
+        type: string
+        maxLength: 200
+      tags:
+        type: array
+        description: Deterministic retrieval tags (stable tokens).
+        items:
+          $ref: '#/$defs/id_token'
+
+  spec:
+    type: object
+    additionalProperties: false
+    required:
+      - job_ref
+      - evaluator
+      - criteria
+      - outcome
+      - confidence
+      - artifact_decisions
+      - created_at
+      - invariants
+    properties:
+      job_ref:
+        $ref: '#/$defs/job_ref'
+      evaluator:
+        $ref: '#/$defs/evaluator_ref'
+      criteria:
+        type: array
+        minItems: 1
+        description: Criteria evaluated and their results.
+        items:
+          $ref: '#/$defs/criterion_result'
+      outcome:
+        $ref: '#/$defs/outcome'
+      confidence:
+        $ref: '#/$defs/confidence'
+      notes:
+        type: string
+        maxLength: 8000
+      artifact_decisions:
+        type: array
+        description: Artifacts accepted/rejected by this evaluation.
+        items:
+          $ref: '#/$defs/artifact_decision'
+      created_at:
+        $ref: '#/$defs/date_time'
+      invariants:
+        $ref: '#/$defs/invariants'
+      failure_codes:
+        type: array
+        description: Optional declared failure codes when outcome is fail/partial.
+        items:
+          $ref: '#/$defs/error_code'
+
+  job_ref:
+    type: object
+    additionalProperties: false
+    required:
+      - job_id
+    properties:
+      job_id:
+        $ref: '#/$defs/job_id'
+      ref:
+        $ref: '#/$defs/uri_reference'
+        description: Optional URI reference to the JobContract record.
+
+  evaluator_ref:
+    type: object
+    additionalProperties: false
+    required:
+      - actor_type
+      - actor_id
+      - authority_level
+    description: Evaluator identity (agent or system).
+    properties:
+      actor_type:
+        type: string
+        enum: [agent, system]
+      actor_id:
+        type: string
+        minLength: 1
+        maxLength: 256
+        description: Agent id or system id.
+      authority_level:
+        $ref: '#/$defs/authority_level'
+      notes:
+        type: string
+        maxLength: 1000
+    allOf:
+      - if:
+          properties:
+            actor_type:
+              const: agent
+        then:
+          properties:
+            actor_id:
+              pattern: '^[a-z](?:[a-z0-9-]{1,62}[a-z0-9])$'
+            authority_level:
+              enum: [org_lead, evaluator]
+      - if:
+          properties:
+            actor_type:
+              const: system
+        then:
+          properties:
+            authority_level:
+              const: evaluator
+
+  criterion_result:
+    type: object
+    additionalProperties: false
+    required:
+      - criterion_id
+      - description
+      - result
+    properties:
+      criterion_id:
+        $ref: '#/$defs/id_token'
+      description:
+        type: string
+        minLength: 1
+        maxLength: 2000
+      result:
+        type: string
+        enum: [pass, fail, partial, not_applicable]
+      weight:
+        type: number
+        minimum: 0
+        maximum: 1000
+        description: Optional weighting (relative).
+      notes:
+        type: string
+        maxLength: 2000
+
+  outcome:
+    type: object
+    additionalProperties: false
+    required:
+      - status
+      - next_job_state
+    description: Outcome of the evaluation and the allowed job state transition.
+    properties:
+      status:
+        type: string
+        enum: [pass, fail, partial]
+      next_job_state:
+        type: string
+        enum: [running, waiting, completed, failed]
+        description: Flo applies this transition to the JobContract status.
+      rationale:
+        type: string
+        maxLength: 4000
+
+    allOf:
+      - if:
+          properties:
+            status:
+              const: fail
+        then:
+          properties:
+            next_job_state:
+              const: failed
+      - if:
+          properties:
+            status:
+              const: pass
+        then:
+          properties:
+            next_job_state:
+              enum: [running, waiting, completed]
+      - if:
+          properties:
+            status:
+              const: partial
+        then:
+          properties:
+            next_job_state:
+              enum: [running, waiting]
+
+  artifact_decision:
+    type: object
+    additionalProperties: false
+    required:
+      - artifact_id
+      - artifact_type
+      - producing_agent_id
+      - decision
+    description: >-
+      Decision about a specific artifact. Flo must reject evaluations where the
+      evaluator is the same agent as producing_agent_id (no self-evaluation).
+    properties:
+      artifact_id:
+        $ref: '#/$defs/artifact_id'
+      artifact_type:
+        $ref: '#/$defs/artifact_type'
+      artifact_ref:
+        $ref: '#/$defs/uri_reference'
+        description: Optional reference to the artifact record.
+      producing_agent_id:
+        $ref: '#/$defs/agent_id'
+      decision:
+        type: string
+        enum: [accepted, rejected]
+      notes:
+        type: string
+        maxLength: 2000
+
+  invariants:
+    type: object
+    additionalProperties: false
+    required:
+      - decides_job_progression
+      - only_evaluations_mark_job_complete
+      - memory_promotion_requires_evaluation_ref
+      - self_evaluation_prohibited
+      - flo_enforced
+    description: Platform-level invariants enforced as constants.
+    properties:
+      decides_job_progression:
+        type: boolean
+        const: true
+      only_evaluations_mark_job_complete:
+        type: boolean
+        const: true
+      memory_promotion_requires_evaluation_ref:
+        type: boolean
+        const: true
+      self_evaluation_prohibited:
+        type: boolean
+        const: true
+      flo_enforced:
+        type: boolean
+        const: true

@@ -1,0 +1,928 @@
+# RoboZilla Organization Manifest Schema
+#
+# This is a JSON Schema (Draft 2020-12) expressed as YAML.
+#
+# Organizations are the top-level sellable unit. This manifest defines the
+# organization's identity plus hard boundaries for:
+# - Purpose and domain scope
+# - Allowed artifact types
+# - Included agent roles (by reference only)
+# - Allowed skills (by category and/or explicit allowlist)
+# - Owned n8n workflows (by identifier)
+# - Allowed MCP gateways / external system access
+# - Permission boundaries and risk limits
+# - Execution limits (concurrency, rate, cost caps)
+# - Visibility rules for Flo routing
+# - Versioning and upgrade compatibility
+#
+# Design goals:
+# - Strict by default: unknown fields are rejected (additionalProperties: false)
+# - Vendor-neutral: no assumptions about specific models/providers/vendors
+# - Explicit contracts: required fields force explicit boundary decisions
+#
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://robozilla.ai/schemas/organization_manifest.schema.yaml
+title: RoboZilla Organization Manifest
+description: >-
+  Top-level configuration and policy boundary for an organization. The
+  organization is the sellable unit and defines what the platform is allowed to
+  do on behalf of that organization.
+type: object
+additionalProperties: false
+required:
+  - api_version
+  - kind
+  - metadata
+  - spec
+properties:
+  api_version:
+    type: string
+    const: robozilla.ai/v1alpha1
+    description: >-
+      Manifest schema version. This is about the document structure, not the
+      organization's own package/release version.
+  kind:
+    type: string
+    const: OrganizationManifest
+    description: Document type discriminator.
+  metadata:
+    $ref: '#/$defs/metadata'
+  spec:
+    $ref: '#/$defs/spec'
+
+$defs:
+  # --------
+  # Primitives
+  # --------
+  org_id:
+    type: string
+    minLength: 3
+    maxLength: 64
+    pattern: '^[a-z](?:[a-z0-9-]{1,62}[a-z0-9])$'
+    description: >-
+      Stable, globally unique organization identifier (tenant key). Lowercase
+      letters/digits/hyphens only.
+
+  id_token:
+    type: string
+    minLength: 2
+    maxLength: 64
+    pattern: '^[a-z](?:[a-z0-9_.-]{0,62}[a-z0-9])$'
+    description: >-
+      Stable identifier token. Lowercase letters/digits plus '.', '_', '-'.
+      Must start with a letter and end with a letter or digit.
+
+  semver:
+    type: string
+    minLength: 1
+    maxLength: 64
+    pattern: '^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$'
+    description: Semantic Version (SemVer 2.0.0).
+
+  semver_range:
+    type: string
+    minLength: 1
+    maxLength: 128
+    description: >-
+      SemVer range/constraint string (exact interpretation is runtime-defined).
+      Examples: ">=1.2.3 <2.0.0", "^1.4.0".
+
+  uri_reference:
+    type: string
+    minLength: 1
+    maxLength: 2048
+    format: uri-reference
+    description: URI reference (relative path, absolute URL, or other resolver-supported reference).
+
+  json_pointer:
+    type: string
+    minLength: 1
+    maxLength: 512
+    pattern: '^(?:\\/[^\\s]+)+$'
+    description: >-
+      JSON Pointer (RFC 6901) to a field within this manifest. Used for
+      controlling what Flo may read for routing decisions.
+
+  money_amount:
+    type: number
+    minimum: 0
+    description: Non-negative monetary amount.
+
+  # --------
+  # Top-level blocks
+  # --------
+  metadata:
+    type: object
+    additionalProperties: false
+    required:
+      - org_id
+      - display_name
+      - description
+    properties:
+      org_id:
+        $ref: '#/$defs/org_id'
+      display_name:
+        type: string
+        minLength: 1
+        maxLength: 120
+        description: Human-friendly organization name.
+      description:
+        type: string
+        minLength: 1
+        maxLength: 2000
+        description: Human-friendly summary of the organization.
+      homepage_url:
+        type: string
+        format: uri
+        maxLength: 2048
+        description: Optional public homepage URL for the organization.
+      contact:
+        type: object
+        additionalProperties: false
+        description: Optional operational contact information.
+        properties:
+          email:
+            type: string
+            format: email
+            maxLength: 320
+          url:
+            type: string
+            format: uri
+            maxLength: 2048
+      owners:
+        type: array
+        description: Optional list of accountable owners (humans or teams).
+        items:
+          type: object
+          additionalProperties: false
+          required:
+            - owner_type
+            - owner_id
+          properties:
+            owner_type:
+              type: string
+              enum: [human, team, system]
+            owner_id:
+              type: string
+              minLength: 1
+              maxLength: 256
+      labels:
+        type: object
+        description: Optional key/value labels for grouping and filtering.
+        propertyNames:
+          pattern: '^[a-zA-Z0-9_.-]{1,64}$'
+        additionalProperties:
+          type: string
+          maxLength: 256
+      annotations:
+        type: object
+        description: Optional key/value annotations for tooling (non-semantic).
+        propertyNames:
+          pattern: '^[a-zA-Z0-9_.-]{1,128}$'
+        additionalProperties:
+          type: string
+          maxLength: 2000
+
+  spec:
+    type: object
+    additionalProperties: false
+    required:
+      - purpose
+      - domain_scope
+      - artifact_policy
+      - agent_roles
+      - skill_policy
+      - workflows
+      - external_access
+      - permissions
+      - execution_limits
+      - flo_routing
+      - compatibility
+    properties:
+      purpose:
+        $ref: '#/$defs/purpose'
+      domain_scope:
+        $ref: '#/$defs/domain_scope'
+      artifact_policy:
+        $ref: '#/$defs/artifact_policy'
+      agent_roles:
+        type: array
+        minItems: 1
+        description: >-
+          Agent roles available within this organization. Roles are referenced,
+          never defined inline.
+        items:
+          $ref: '#/$defs/agent_role_ref'
+      skill_policy:
+        $ref: '#/$defs/skill_policy'
+      workflows:
+        $ref: '#/$defs/workflows'
+      external_access:
+        $ref: '#/$defs/external_access'
+      permissions:
+        $ref: '#/$defs/permissions'
+      execution_limits:
+        $ref: '#/$defs/execution_limits'
+      flo_routing:
+        $ref: '#/$defs/flo_routing'
+      compatibility:
+        $ref: '#/$defs/compatibility'
+
+  # --------
+  # Purpose and scope
+  # --------
+  purpose:
+    type: object
+    additionalProperties: false
+    required:
+      - statement
+    properties:
+      statement:
+        type: string
+        minLength: 1
+        maxLength: 2000
+        description: >-
+          Single-sentence to paragraph statement of why this organization exists
+          within the platform and what outcomes it is intended to achieve.
+      goals:
+        type: array
+        description: Optional list of concrete goals (in plain language).
+        items:
+          type: string
+          minLength: 1
+          maxLength: 500
+      non_goals:
+        type: array
+        description: Optional list of explicitly out-of-scope goals.
+        items:
+          type: string
+          minLength: 1
+          maxLength: 500
+      success_criteria:
+        type: array
+        description: Optional list of measurable success criteria (plain language).
+        items:
+          type: string
+          minLength: 1
+          maxLength: 500
+      notes:
+        type: string
+        maxLength: 4000
+        description: Optional free-form notes for humans (no runtime semantics).
+
+  domain_scope:
+    type: object
+    additionalProperties: false
+    required:
+      - summary
+      - in_scope
+      - out_of_scope
+    properties:
+      summary:
+        type: string
+        minLength: 1
+        maxLength: 2000
+        description: Plain-language description of what work is considered in-scope.
+      in_scope:
+        type: array
+        minItems: 1
+        description: Canonical list of in-scope areas (used to prevent scope creep).
+        items:
+          $ref: '#/$defs/scope_item'
+      out_of_scope:
+        type: array
+        description: Canonical list of out-of-scope areas (hard boundary).
+        items:
+          $ref: '#/$defs/scope_item'
+      constraints:
+        type: array
+        description: Optional list of cross-cutting constraints (plain language).
+        items:
+          type: string
+          minLength: 1
+          maxLength: 500
+
+  scope_item:
+    type: object
+    additionalProperties: false
+    required:
+      - scope_id
+      - description
+    properties:
+      scope_id:
+        $ref: '#/$defs/id_token'
+        description: Stable identifier for this scope item.
+      description:
+        type: string
+        minLength: 1
+        maxLength: 1000
+      examples:
+        type: array
+        description: Optional examples (plain language).
+        items:
+          type: string
+          minLength: 1
+          maxLength: 300
+
+  # --------
+  # Artifact policy
+  # --------
+  artifact_policy:
+    type: object
+    additionalProperties: false
+    required:
+      - allowed_types
+    properties:
+      allowed_types:
+        type: array
+        minItems: 1
+        description: >-
+          Artifact types this organization is allowed to produce. Artifact type
+          definitions/contracts are referenced elsewhere; this is an allowlist
+          boundary.
+        items:
+          $ref: '#/$defs/artifact_type_ref'
+      denied_types:
+        type: array
+        description: >-
+          Optional explicit denylist (takes precedence if an id appears in both).
+        items:
+          $ref: '#/$defs/artifact_type_ref'
+
+  artifact_type_ref:
+    type: object
+    additionalProperties: false
+    required:
+      - type_id
+    properties:
+      type_id:
+        $ref: '#/$defs/id_token'
+        description: Stable artifact type identifier.
+      ref:
+        $ref: '#/$defs/uri_reference'
+        description: Optional reference to the artifact contract/schema for this type.
+      description:
+        type: string
+        maxLength: 1000
+
+  # --------
+  # Agent roles (by reference)
+  # --------
+  agent_role_ref:
+    type: object
+    additionalProperties: false
+    required:
+      - role_id
+      - ref
+    properties:
+      role_id:
+        $ref: '#/$defs/id_token'
+        description: >-
+          Role identifier used by orchestration/routing. This is an org-local
+          stable name, not a human display name.
+      ref:
+        $ref: '#/$defs/uri_reference'
+        description: Reference to an Agent Definition (stored and versioned elsewhere).
+      version:
+        $ref: '#/$defs/semver_range'
+        description: Optional version constraint for the referenced agent definition.
+      enabled:
+        type: boolean
+        default: true
+        description: If false, the role exists but cannot be scheduled/executed.
+      description:
+        type: string
+        maxLength: 1000
+
+  # --------
+  # Skill allowlist policy
+  # --------
+  skill_policy:
+    type: object
+    additionalProperties: false
+    required:
+      - default_rule
+      - allow
+    description: >-
+      Allowed skills boundary for this organization. This is intentionally
+      separate from agent definitions: agents may only use skills permitted here.
+    properties:
+      default_rule:
+        type: string
+        enum: [deny, allow]
+        description: >-
+          Default decision when a skill is not matched by allow/deny rules.
+          Recommended: "deny" for safety.
+      allow:
+        $ref: '#/$defs/skill_selector'
+      deny:
+        $ref: '#/$defs/skill_selector'
+      notes:
+        type: string
+        maxLength: 4000
+
+  skill_selector:
+    type: object
+    additionalProperties: false
+    description: >-
+      Selects skills by explicit identifiers and/or by category identifiers.
+      Matching semantics are runtime-defined; use deny to override allow.
+    properties:
+      skill_ids:
+        type: array
+        description: Explicit allow/deny list of skill identifiers.
+        items:
+          $ref: '#/$defs/id_token'
+      skill_categories:
+        type: array
+        description: Allow/deny list of skill category identifiers.
+        items:
+          $ref: '#/$defs/id_token'
+
+  # --------
+  # Workflows
+  # --------
+  workflows:
+    type: object
+    additionalProperties: false
+    required:
+      - n8n
+    properties:
+      n8n:
+        type: object
+        additionalProperties: false
+        required:
+          - owned_workflow_ids
+        description: n8n workflows owned/managed by this organization.
+        properties:
+          owned_workflow_ids:
+            type: array
+            description: >-
+              Identifiers for n8n workflows owned by this organization. These
+              should be stable within your n8n environment (name/slug/uuid),
+              depending on your registry conventions.
+            items:
+              $ref: '#/$defs/workflow_id'
+          notes:
+            type: string
+            maxLength: 4000
+
+  workflow_id:
+    type: string
+    minLength: 1
+    maxLength: 128
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+    description: Workflow identifier string (registry-defined).
+
+  # --------
+  # External access (MCP + optional direct network)
+  # --------
+  external_access:
+    type: object
+    additionalProperties: false
+    required:
+      - mcp
+      - direct_network
+    properties:
+      mcp:
+        type: object
+        additionalProperties: false
+        required:
+          - allowed
+        description: >-
+          Allowed MCP gateways for external/stateful system access. Prefer MCP
+          over direct integration to keep access auditable and controllable.
+        properties:
+          allowed:
+            type: array
+            description: Allowlist of MCP servers/gateways this org may use.
+            items:
+              $ref: '#/$defs/mcp_ref'
+      direct_network:
+        type: object
+        additionalProperties: false
+        required:
+          - policy
+        description: >-
+          Optional direct outbound network access policy. If you can route all
+          external access through MCPs, keep this set to "deny_all".
+        properties:
+          policy:
+            type: string
+            enum: [deny_all, allowlist]
+          allowlist:
+            $ref: '#/$defs/network_allowlist'
+          denylist:
+            $ref: '#/$defs/network_denylist'
+    allOf:
+      - if:
+          properties:
+            direct_network:
+              properties:
+                policy:
+                  const: allowlist
+        then:
+          properties:
+            direct_network:
+              required:
+                - allowlist
+
+  mcp_ref:
+    type: object
+    additionalProperties: false
+    required:
+      - mcp_id
+      - ref
+    properties:
+      mcp_id:
+        $ref: '#/$defs/id_token'
+        description: Stable MCP gateway identifier.
+      ref:
+        $ref: '#/$defs/uri_reference'
+        description: Reference to an MCP configuration/manifest (defined elsewhere).
+      allowed_scopes:
+        type: array
+        description: >-
+          Optional MCP scope allowlist (strings are MCP-defined). Use this to
+          further restrict what the MCP is allowed to do for this org.
+        items:
+          type: string
+          minLength: 1
+          maxLength: 128
+      notes:
+        type: string
+        maxLength: 2000
+
+  network_allowlist:
+    type: object
+    additionalProperties: false
+    description: Where direct network access is permitted.
+    properties:
+      domains:
+        type: array
+        description: Allowed DNS hostnames (optionally with "*." wildcard prefix).
+        items:
+          type: string
+          minLength: 1
+          maxLength: 253
+          pattern: '^(?:\\*\\.)?[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+$'
+      urls:
+        type: array
+        description: Allowed URL prefixes (use sparingly; prefer domains).
+        items:
+          type: string
+          format: uri
+          maxLength: 2048
+      ip_cidrs:
+        type: array
+        description: Allowed IP ranges in CIDR notation (IPv4 or IPv6).
+        items:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[0-9A-Fa-f:.]+\\/[0-9]{1,3}$'
+
+  network_denylist:
+    type: object
+    additionalProperties: false
+    description: Explicitly blocked destinations (applies even if allowlisted).
+    properties:
+      domains:
+        type: array
+        items:
+          type: string
+          minLength: 1
+          maxLength: 253
+          pattern: '^(?:\\*\\.)?[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+$'
+      urls:
+        type: array
+        items:
+          type: string
+          format: uri
+          maxLength: 2048
+      ip_cidrs:
+        type: array
+        items:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[0-9A-Fa-f:.]+\\/[0-9]{1,3}$'
+
+  # --------
+  # Permissions and risk
+  # --------
+  permissions:
+    type: object
+    additionalProperties: false
+    required:
+      - boundary
+      - risk_limits
+    properties:
+      boundary:
+        type: object
+        additionalProperties: false
+        required:
+          - deny_by_default
+          - statements
+        description: >-
+          Coarse permission boundary rules. Use this to express allow/deny
+          decisions over actions/resources at the organization level.
+        properties:
+          deny_by_default:
+            type: boolean
+            description: 'Recommended: true. If true, anything not explicitly allowed is denied.'
+          statements:
+            type: array
+            description: Ordered list of policy statements.
+            items:
+              $ref: '#/$defs/permission_statement'
+      risk_limits:
+        type: object
+        additionalProperties: false
+        required:
+          - max_risk_level
+          - max_data_classification
+          - allow_pii
+          - allow_secrets
+        description: >-
+          Hard caps for operational risk. These limits are used to block unsafe
+          plans and executions regardless of agent/skill intent.
+        properties:
+          max_risk_level:
+            type: string
+            enum: [low, medium, high]
+            description: Maximum allowed operational risk for actions in this org.
+          max_data_classification:
+            type: string
+            enum: [public, internal, confidential, restricted]
+            description: Maximum allowed data sensitivity/classification.
+          allow_pii:
+            type: boolean
+            description: If false, processing/derivation of personal data is prohibited.
+          allow_secrets:
+            type: boolean
+            description: If false, handling of credentials/secrets is prohibited.
+          require_human_approval_for_actions:
+            type: array
+            description: Optional action patterns that always require human approval.
+            items:
+              $ref: '#/$defs/policy_pattern'
+
+  permission_statement:
+    type: object
+    additionalProperties: false
+    required:
+      - effect
+      - actions
+      - resources
+    properties:
+      sid:
+        type: string
+        minLength: 1
+        maxLength: 64
+        description: Optional statement identifier.
+      effect:
+        type: string
+        enum: [allow, deny]
+      actions:
+        type: array
+        minItems: 1
+        description: >-
+          Action identifiers or patterns (implementation-defined). Keep actions
+          coarse and stable, e.g. "artifact.create", "mcp.call", "workflow.trigger".
+        items:
+          $ref: '#/$defs/policy_pattern'
+      resources:
+        type: array
+        minItems: 1
+        description: Resource identifiers or patterns (implementation-defined).
+        items:
+          $ref: '#/$defs/policy_pattern'
+      conditions:
+        type: object
+        additionalProperties: false
+        description: Optional generic conditions (kept intentionally small and strict).
+        properties:
+          requires_human_approval:
+            type: boolean
+          max_data_classification:
+            type: string
+            enum: [public, internal, confidential, restricted]
+
+  policy_pattern:
+    type: string
+    minLength: 1
+    maxLength: 256
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_./:*+-]{0,255}$'
+    description: >-
+      Identifier or wildcard pattern. Avoid overly-broad wildcards unless you
+      have strong compensating controls.
+
+  # --------
+  # Execution limits
+  # --------
+  execution_limits:
+    type: object
+    additionalProperties: false
+    required:
+      - concurrency
+      - rate_limits
+      - cost_caps
+      - timeouts
+    description: >-
+      Hard execution caps for safety and cost control. These are enforcement
+      boundaries, not preferences.
+    properties:
+      concurrency:
+        type: object
+        additionalProperties: false
+        required:
+          - max_active_jobs
+        properties:
+          max_active_jobs:
+            type: integer
+            minimum: 0
+            maximum: 100000
+            description: >-
+              Maximum number of concurrently active jobs for this organization.
+              Set to 0 to disable execution.
+          max_active_agent_runs:
+            type: integer
+            minimum: 0
+            maximum: 100000
+            description: Optional cap on concurrent agent runs (across all jobs).
+          max_active_workflow_runs:
+            type: integer
+            minimum: 0
+            maximum: 100000
+            description: Optional cap on concurrent workflow runs (e.g., n8n triggers).
+      rate_limits:
+        type: object
+        additionalProperties: false
+        required:
+          - max_job_starts_per_minute
+        properties:
+          max_job_starts_per_minute:
+            type: integer
+            minimum: 0
+            maximum: 1000000
+            description: Throttle on job starts (not job steps).
+          max_external_requests_per_minute:
+            type: integer
+            minimum: 0
+            maximum: 1000000
+            description: Optional throttle for outbound requests (MCP or direct network).
+          max_artifacts_per_minute:
+            type: integer
+            minimum: 0
+            maximum: 1000000
+            description: Optional throttle on artifact production.
+      cost_caps:
+        type: object
+        additionalProperties: false
+        required:
+          - currency
+          - max_cost_per_job
+          - max_cost_per_day
+        description: >-
+          Cost caps are expressed generically and do not assume any specific
+          provider billing unit.
+        properties:
+          currency:
+            type: string
+            pattern: '^[A-Z]{3}$'
+            description: ISO 4217 currency code (e.g., "USD").
+          max_cost_per_job:
+            $ref: '#/$defs/money_amount'
+          max_cost_per_hour:
+            $ref: '#/$defs/money_amount'
+          max_cost_per_day:
+            $ref: '#/$defs/money_amount'
+          max_cost_per_month:
+            $ref: '#/$defs/money_amount'
+      timeouts:
+        type: object
+        additionalProperties: false
+        required:
+          - max_job_runtime_seconds
+        properties:
+          max_job_runtime_seconds:
+            type: integer
+            minimum: 1
+            maximum: 1209600  # 14 days
+            description: Absolute runtime cap per job.
+          max_step_runtime_seconds:
+            type: integer
+            minimum: 1
+            maximum: 604800  # 7 days
+            description: Optional runtime cap per step/task within a job.
+          max_workflow_runtime_seconds:
+            type: integer
+            minimum: 1
+            maximum: 1209600  # 14 days
+            description: Optional runtime cap per workflow run (e.g., n8n execution).
+
+  # --------
+  # Flo routing visibility
+  # --------
+  flo_routing:
+    type: object
+    additionalProperties: false
+    required:
+      - enabled
+      - visibility
+    description: >-
+      Controls what Flo (the orchestrator/router) is allowed to read from this
+      manifest when making routing decisions. This prevents accidental leakage
+      of sensitive configuration into routing/logging surfaces.
+    properties:
+      enabled:
+        type: boolean
+        description: If false, Flo must not route jobs for this organization.
+      visibility:
+        type: object
+        additionalProperties: false
+        required:
+          - mode
+        properties:
+          mode:
+            type: string
+            enum: [summary, full, custom]
+            description: >-
+              summary: Flo may only read a small, non-sensitive subset.
+              full: Flo may read all fields.
+              custom: Flo may read only explicitly exposed paths.
+          expose_paths:
+            type: array
+            description: >-
+              Required when mode=custom. Allowlist of JSON Pointers Flo may read.
+            items:
+              $ref: '#/$defs/json_pointer'
+          hide_paths:
+            type: array
+            description: Optional denylist of JSON Pointers Flo must not read (overrides expose).
+            items:
+              $ref: '#/$defs/json_pointer'
+    allOf:
+      - if:
+          properties:
+            visibility:
+              properties:
+                mode:
+                  const: custom
+        then:
+          properties:
+            visibility:
+              required:
+                - expose_paths
+
+  # --------
+  # Versioning and compatibility
+  # --------
+  compatibility:
+    type: object
+    additionalProperties: false
+    required:
+      - manifest_version
+      - requires_core
+    description: >-
+      Controls upgrade and runtime compatibility. api_version describes the
+      document structure; manifest_version describes the organization's own
+      configuration release cadence.
+    properties:
+      manifest_version:
+        $ref: '#/$defs/semver'
+      requires_core:
+        type: object
+        additionalProperties: false
+        required:
+          - min_version
+        properties:
+          min_version:
+            $ref: '#/$defs/semver'
+            description: Minimum compatible RoboZilla core/runtime version.
+          max_version:
+            $ref: '#/$defs/semver'
+            description: Optional maximum compatible RoboZilla core/runtime version.
+          tested_versions:
+            type: array
+            description: Optional list of core/runtime versions this org manifest was tested against.
+            items:
+              $ref: '#/$defs/semver'
+      required_features:
+        type: array
+        description: Optional list of feature flags/capabilities required by this org config.
+        items:
+          $ref: '#/$defs/id_token'
+      upgrade_policy:
+        type: object
+        additionalProperties: false
+        description: Optional guardrails for automated or assisted upgrades.
+        properties:
+          on_incompatible_core:
+            type: string
+            enum: [block, warn]
+            description: What to do if core/runtime version is outside requires_core.
+          allow_auto_migrate:
+            type: boolean
+            description: If true, tooling may apply safe, non-breaking migrations.

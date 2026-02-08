@@ -1,0 +1,13 @@
+services:
+  robozilla-runtime:
+    image: robozilla/runtime:local
+    build: .
+    user: "986:986"
+    restart: unless-stopped
+    env_file:
+      - .env
+    # No published ports. With host networking, binding to 127.0.0.1 stays local-only.
+    network_mode: host
+    volumes:
+      - /data:/data
+      - /logs:/logs

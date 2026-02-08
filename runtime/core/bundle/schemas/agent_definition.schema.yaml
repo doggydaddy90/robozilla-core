@@ -1,0 +1,793 @@
+# RoboZilla Agent Definition Schema
+#
+# This is a JSON Schema (Draft 2020-12) expressed as YAML.
+#
+# Agents are ROLE-BASED workers (not personalities). An Agent Definition is a
+# reusable, versioned capability boundary that organizations may include by
+# reference in their Organization Manifest.
+#
+# This schema strictly defines:
+# - Agent identity (agent_id, name, role)
+# - Declared responsibilities and explicit non-responsibilities
+# - Which organizations may include this agent (by org_id reference)
+# - Allowed skill access (by category and/or explicit allowlist)
+# - Allowed MCP access (by reference; default none)
+# - Memory access level (read / write / none, scoped)
+# - Authority level (worker, org_lead, evaluator)
+# - Escalation rules (who this agent defers to)
+# - Decision rights (can recommend vs can decide)
+# - Side-effect permissions (yes/no)
+# - Runtime limits (timeouts, retries, concurrency)
+# - Safety posture and failure behavior
+#
+# Non-negotiable platform invariants are encoded under spec.invariants:
+# - Agents MUST NOT own workflows
+# - Agents MUST NOT self-trigger
+# - Agents MUST NOT mutate system state without a job contract
+#
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://robozilla.ai/schemas/agent_definition.schema.yaml
+title: RoboZilla Agent Definition
+description: >-
+  Role-based agent contract. Defines what an agent is allowed to do, how it
+  behaves under failure, and where it may be used. This document does not
+  define skills, memory schemas, or job logic; it only references them.
+type: object
+additionalProperties: false
+required:
+  - api_version
+  - kind
+  - metadata
+  - spec
+properties:
+  api_version:
+    type: string
+    const: robozilla.ai/v1alpha1
+    description: >-
+      Manifest schema version (document structure), not the agent's own release
+      version.
+  kind:
+    type: string
+    const: AgentDefinition
+    description: Document type discriminator.
+  metadata:
+    $ref: '#/$defs/metadata'
+  spec:
+    $ref: '#/$defs/spec'
+
+$defs:
+  # --------
+  # Primitives
+  # --------
+  agent_id:
+    type: string
+    minLength: 3
+    maxLength: 64
+    pattern: '^[a-z](?:[a-z0-9-]{1,62}[a-z0-9])$'
+    description: >-
+      Stable, globally unique agent identifier. Lowercase letters/digits/hyphens only.
+
+  org_id:
+    type: string
+    minLength: 3
+    maxLength: 64
+    pattern: '^[a-z](?:[a-z0-9-]{1,62}[a-z0-9])$'
+    description: >-
+      Stable, globally unique organization identifier (tenant key).
+
+  id_token:
+    type: string
+    minLength: 2
+    maxLength: 64
+    pattern: '^[a-z](?:[a-z0-9_.-]{0,62}[a-z0-9])$'
+    description: >-
+      Stable identifier token. Lowercase letters/digits plus '.', '_', '-'.
+
+  semver:
+    type: string
+    minLength: 1
+    maxLength: 64
+    pattern: '^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$'
+    description: Semantic Version (SemVer 2.0.0).
+
+  semver_range:
+    type: string
+    minLength: 1
+    maxLength: 128
+    description: >-
+      SemVer range/constraint string (exact interpretation is runtime-defined).
+      Examples: ">=1.2.3 <2.0.0", "^1.4.0".
+
+  uri_reference:
+    type: string
+    minLength: 1
+    maxLength: 2048
+    format: uri-reference
+    description: URI reference resolvable by tooling (relative path or URL).
+
+  policy_pattern:
+    type: string
+    minLength: 1
+    maxLength: 256
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_./:*+-]{0,255}$'
+    description: Identifier or wildcard pattern (implementation-defined).
+
+  positive_int:
+    type: integer
+    minimum: 1
+    maximum: 1000000000
+
+  non_negative_int:
+    type: integer
+    minimum: 0
+    maximum: 1000000000
+
+  # --------
+  # Top-level blocks
+  # --------
+  metadata:
+    type: object
+    additionalProperties: false
+    required:
+      - agent_id
+      - name
+      - role
+      - description
+    properties:
+      agent_id:
+        $ref: '#/$defs/agent_id'
+      name:
+        type: string
+        minLength: 1
+        maxLength: 120
+        description: Human-friendly agent name.
+      role:
+        $ref: '#/$defs/id_token'
+        description: >-
+          Stable role identifier (e.g., "audit", "outreach"). This is not a
+          personality; it is a functional role.
+      description:
+        type: string
+        minLength: 1
+        maxLength: 2000
+        description: Human-friendly summary of what this agent is for.
+      documentation_url:
+        type: string
+        format: uri
+        maxLength: 2048
+        description: Optional docs URL for humans.
+      labels:
+        type: object
+        description: Optional key/value labels for grouping and filtering.
+        propertyNames:
+          pattern: '^[a-zA-Z0-9_.-]{1,64}$'
+        additionalProperties:
+          type: string
+          maxLength: 256
+      annotations:
+        type: object
+        description: Optional non-semantic annotations for tooling.
+        propertyNames:
+          pattern: '^[a-zA-Z0-9_.-]{1,128}$'
+        additionalProperties:
+          type: string
+          maxLength: 2000
+
+  spec:
+    type: object
+    additionalProperties: false
+    required:
+      - responsibilities
+      - org_inclusion
+      - skill_policy
+      - mcp_access
+      - memory_access
+      - authority
+      - escalation
+      - decision_rights
+      - side_effects
+      - runtime_limits
+      - safety
+      - invariants
+      - compatibility
+    properties:
+      responsibilities:
+        $ref: '#/$defs/responsibilities'
+      org_inclusion:
+        $ref: '#/$defs/org_inclusion'
+      skill_policy:
+        $ref: '#/$defs/skill_policy'
+      mcp_access:
+        $ref: '#/$defs/mcp_access'
+      memory_access:
+        $ref: '#/$defs/memory_access'
+      authority:
+        $ref: '#/$defs/authority'
+      escalation:
+        $ref: '#/$defs/escalation'
+      decision_rights:
+        $ref: '#/$defs/decision_rights'
+      side_effects:
+        $ref: '#/$defs/side_effects'
+      runtime_limits:
+        $ref: '#/$defs/runtime_limits'
+      safety:
+        $ref: '#/$defs/safety'
+      invariants:
+        $ref: '#/$defs/invariants'
+      compatibility:
+        $ref: '#/$defs/compatibility'
+
+  # --------
+  # Responsibilities
+  # --------
+  responsibilities:
+    type: object
+    additionalProperties: false
+    required:
+      - responsibilities
+      - non_responsibilities
+    description: >-
+      Plain-language declaration of what this agent is responsible for and what
+      it is explicitly NOT responsible for. These are used to prevent role creep.
+    properties:
+      responsibilities:
+        type: array
+        minItems: 1
+        items:
+          type: string
+          minLength: 1
+          maxLength: 500
+      non_responsibilities:
+        type: array
+        minItems: 1
+        items:
+          type: string
+          minLength: 1
+          maxLength: 500
+      notes:
+        type: string
+        maxLength: 4000
+
+  # --------
+  # Organization inclusion
+  # --------
+  org_inclusion:
+    type: object
+    additionalProperties: false
+    required:
+      - mode
+    description: >-
+      Defines which organizations are allowed to include this agent definition.
+      Use allowlist for safety. If mode=any, require an explicit justification.
+    properties:
+      mode:
+        type: string
+        enum: [allowlist, any]
+      allow_org_ids:
+        type: array
+        items:
+          $ref: '#/$defs/org_id'
+      deny_org_ids:
+        type: array
+        items:
+          $ref: '#/$defs/org_id'
+      justification:
+        type: string
+        minLength: 1
+        maxLength: 2000
+        description: >-
+          Required when mode=any to ensure "any org may include" is deliberate.
+    allOf:
+      - if:
+          properties:
+            mode:
+              const: allowlist
+        then:
+          required:
+            - allow_org_ids
+          properties:
+            allow_org_ids:
+              minItems: 1
+      - if:
+          properties:
+            mode:
+              const: any
+        then:
+          required:
+            - justification
+
+  # --------
+  # Skill policy (agent-local boundary)
+  # --------
+  skill_policy:
+    type: object
+    additionalProperties: false
+    required:
+      - default_rule
+      - allow
+    description: >-
+      Agent-local skill boundary. Effective skills at runtime should be the
+      intersection of (org skill policy) and (agent skill policy).
+    properties:
+      default_rule:
+        type: string
+        enum: [deny, allow]
+        description: >-
+          Default decision when a skill is not matched by allow/deny rules.
+          Recommended: deny.
+      allow:
+        $ref: '#/$defs/skill_selector'
+      deny:
+        $ref: '#/$defs/skill_selector'
+      notes:
+        type: string
+        maxLength: 4000
+    allOf:
+      - if:
+          properties:
+            default_rule:
+              const: deny
+        then:
+          properties:
+            allow:
+              minProperties: 1
+      - if:
+          properties:
+            default_rule:
+              const: allow
+        then:
+          required:
+            - deny
+          properties:
+            deny:
+              minProperties: 1
+
+  skill_selector:
+    type: object
+    additionalProperties: false
+    description: Selects skills by explicit identifiers and/or by category identifiers.
+    properties:
+      skill_ids:
+        type: array
+        items:
+          $ref: '#/$defs/id_token'
+      skill_categories:
+        type: array
+        items:
+          $ref: '#/$defs/id_token'
+
+  # --------
+  # MCP access (default none)
+  # --------
+  mcp_access:
+    type: object
+    additionalProperties: false
+    required:
+      - allowed
+    description: >-
+      Allowed MCP gateways for this agent. Default none is expressed by an empty
+      allowlist.
+    properties:
+      allowed:
+        type: array
+        description: Allowlist of MCP servers/gateways this agent may use.
+        items:
+          $ref: '#/$defs/mcp_ref'
+      notes:
+        type: string
+        maxLength: 2000
+
+  mcp_ref:
+    type: object
+    additionalProperties: false
+    required:
+      - mcp_id
+      - ref
+    properties:
+      mcp_id:
+        $ref: '#/$defs/id_token'
+        description: Stable MCP gateway identifier.
+      ref:
+        $ref: '#/$defs/uri_reference'
+        description: Reference to an MCP configuration/manifest (defined elsewhere).
+      allowed_scopes:
+        type: array
+        description: Optional scope allowlist (strings are MCP-defined).
+        items:
+          type: string
+          minLength: 1
+          maxLength: 128
+      notes:
+        type: string
+        maxLength: 2000
+
+  # --------
+  # Memory access (scoped)
+  # --------
+  memory_access:
+    type: object
+    additionalProperties: false
+    required:
+      - level
+      - scopes
+    description: >-
+      Memory access boundary for this agent. Memory schemas are defined
+      elsewhere; this only specifies access level and allowed scopes.
+    properties:
+      level:
+        type: string
+        enum: [none, read, write]
+        description: >-
+          none: agent must not read/write memory.
+          read: agent may read allowed scopes.
+          write: agent may write allowed scopes (implies read).
+      scopes:
+        type: array
+        description: >-
+          Allowlist of memory scopes this agent can access. Required for read/write.
+        items:
+          $ref: '#/$defs/memory_scope_ref'
+      notes:
+        type: string
+        maxLength: 2000
+    allOf:
+      - if:
+          properties:
+            level:
+              const: none
+        then:
+          properties:
+            scopes:
+              maxItems: 0
+      - if:
+          properties:
+            level:
+              enum: [read, write]
+        then:
+          properties:
+            scopes:
+              minItems: 1
+
+  memory_scope_ref:
+    type: object
+    additionalProperties: false
+    required:
+      - scope_id
+    properties:
+      scope_id:
+        $ref: '#/$defs/id_token'
+        description: Stable identifier for a memory scope/namespace.
+      ref:
+        $ref: '#/$defs/uri_reference'
+        description: Optional reference to the memory scope definition (defined elsewhere).
+      description:
+        type: string
+        maxLength: 1000
+
+  # --------
+  # Authority + governance
+  # --------
+  authority:
+    type: object
+    additionalProperties: false
+    required:
+      - level
+    description: >-
+      Authority level used for governance and routing. This does not grant
+      permissions by itself; permissions are enforced elsewhere.
+    properties:
+      level:
+        type: string
+        enum: [worker, org_lead, evaluator]
+
+  escalation:
+    type: object
+    additionalProperties: false
+    required:
+      - default_target
+    description: >-
+      Escalation configuration describing who this agent defers to when blocked,
+      uncertain, or when approvals are required.
+    properties:
+      default_target:
+        $ref: '#/$defs/escalation_target'
+      rules:
+        type: array
+        description: Optional ordered escalation rules (first match wins; matching is runtime-defined).
+        items:
+          $ref: '#/$defs/escalation_rule'
+      notes:
+        type: string
+        maxLength: 2000
+
+  escalation_target:
+    type: object
+    additionalProperties: false
+    required:
+      - target_type
+    properties:
+      target_type:
+        type: string
+        enum: [authority_level, agent_id]
+      authority_level:
+        type: string
+        enum: [org_lead, evaluator]
+        description: Escalation target by authority level.
+      agent_id:
+        $ref: '#/$defs/agent_id'
+        description: Escalation target by explicit agent id.
+      notes:
+        type: string
+        maxLength: 1000
+    allOf:
+      - if:
+          properties:
+            target_type:
+              const: authority_level
+        then:
+          required:
+            - authority_level
+      - if:
+          properties:
+            target_type:
+              const: agent_id
+        then:
+          required:
+            - agent_id
+
+  escalation_rule:
+    type: object
+    additionalProperties: false
+    required:
+      - when
+      - target
+    properties:
+      rule_id:
+        $ref: '#/$defs/id_token'
+      when:
+        type: array
+        minItems: 1
+        description: >-
+          Trigger identifiers (implementation-defined), e.g. "policy_violation",
+          "missing_required_input", "high_risk_action".
+        items:
+          $ref: '#/$defs/id_token'
+      target:
+        $ref: '#/$defs/escalation_target'
+      urgency:
+        type: string
+        enum: [low, normal, high]
+      notes:
+        type: string
+        maxLength: 2000
+
+  decision_rights:
+    type: object
+    additionalProperties: false
+    required:
+      - mode
+    description: >-
+      Decision rights boundary. "recommend" means the agent can suggest actions
+      but cannot finalize decisions. "decide" means it may finalize decisions
+      within explicitly listed scopes.
+    properties:
+      mode:
+        type: string
+        enum: [recommend, decide]
+      decision_scopes:
+        type: array
+        description: >-
+          Required when mode=decide. Abstract decision scopes (implementation-defined),
+          e.g. "artifact.accept", "plan.approve", "budget.allocate".
+        items:
+          $ref: '#/$defs/id_token'
+      notes:
+        type: string
+        maxLength: 2000
+    allOf:
+      - if:
+          properties:
+            mode:
+              const: decide
+        then:
+          required:
+            - decision_scopes
+          properties:
+            decision_scopes:
+              minItems: 1
+
+  side_effects:
+    type: object
+    additionalProperties: false
+    required:
+      - allowed
+    description: >-
+      Side effects are any actions that modify external/system state. Even when
+      allowed, side effects must only occur under an explicit job contract.
+    properties:
+      allowed:
+        type: boolean
+        description: If false, this agent is restricted to non-mutating work.
+      allowed_effect_types:
+        type: array
+        description: Optional allowlist of effect categories (implementation-defined).
+        items:
+          $ref: '#/$defs/id_token'
+      requires_human_approval:
+        type: boolean
+        description: If true, any side effect requires human approval.
+      notes:
+        type: string
+        maxLength: 2000
+
+  runtime_limits:
+    type: object
+    additionalProperties: false
+    required:
+      - timeouts
+      - retries
+      - concurrency
+    description: Hard runtime caps for this agent definition.
+    properties:
+      timeouts:
+        type: object
+        additionalProperties: false
+        required:
+          - max_run_seconds
+        properties:
+          max_run_seconds:
+            $ref: '#/$defs/positive_int'
+            description: Maximum runtime per agent run.
+          max_step_seconds:
+            $ref: '#/$defs/positive_int'
+            description: Optional maximum runtime per step/tool invocation.
+      retries:
+        type: object
+        additionalProperties: false
+        required:
+          - max_attempts
+        properties:
+          max_attempts:
+            type: integer
+            minimum: 0
+            maximum: 1000
+            description: Maximum number of attempts for recoverable failures.
+          backoff_seconds:
+            $ref: '#/$defs/non_negative_int'
+            description: Optional fixed backoff between attempts.
+      concurrency:
+        type: object
+        additionalProperties: false
+        required:
+          - max_parallel_runs
+        properties:
+          max_parallel_runs:
+            $ref: '#/$defs/non_negative_int'
+            description: Maximum concurrent runs of this agent within an org.
+
+  # --------
+  # Safety posture + failure behavior
+  # --------
+  safety:
+    type: object
+    additionalProperties: false
+    required:
+      - posture
+      - on_failure
+    description: >-
+      Defines how the agent should behave when uncertain, when constraints are
+      violated, or when execution fails.
+    properties:
+      posture:
+        type: string
+        enum: [conservative, standard, permissive]
+        description: >-
+          conservative: prefer refusing/asking over risky action.
+          standard: balanced behavior with safe defaults.
+          permissive: broader latitude (still constrained by org + policy).
+      on_failure:
+        type: object
+        additionalProperties: false
+        required:
+          - behavior
+        properties:
+          behavior:
+            type: string
+            enum: [halt_and_escalate, retry_then_escalate, halt_and_report]
+            description: Default behavior when an execution fails.
+          emit_failure_artifact:
+            type: boolean
+            description: If true, produce a diagnostic artifact describing the failure.
+          redact_sensitive:
+            type: boolean
+            description: If true, redact sensitive inputs/outputs from failure artifacts and logs.
+      refusal_policy:
+        type: object
+        additionalProperties: false
+        description: Optional explicit refusal conditions (generic and vendor-neutral).
+        properties:
+          refuse_on_policy_violation:
+            type: boolean
+          refuse_on_missing_job_contract:
+            type: boolean
+          refuse_on_ambiguous_instructions:
+            type: boolean
+      notes:
+        type: string
+        maxLength: 4000
+
+  # --------
+  # Non-negotiable invariants (encoded as constants)
+  # --------
+  invariants:
+    type: object
+    additionalProperties: false
+    required:
+      - owns_workflows
+      - can_self_trigger
+      - requires_job_contract_for_side_effects
+    description: >-
+      These invariants are platform-level rules and must not vary per agent.
+      They are included in the schema to prevent misconfiguration and ambiguity.
+    properties:
+      owns_workflows:
+        type: boolean
+        const: false
+        description: Agents must not own or define workflows.
+      can_self_trigger:
+        type: boolean
+        const: false
+        description: Agents must not self-schedule or self-trigger execution.
+      requires_job_contract_for_side_effects:
+        type: boolean
+        const: true
+        description: Agents may only cause side effects under an explicit job contract.
+
+  # --------
+  # Versioning and compatibility
+  # --------
+  compatibility:
+    type: object
+    additionalProperties: false
+    required:
+      - agent_version
+      - requires_core
+    description: >-
+      api_version describes the document structure. agent_version describes the
+      agent definition's own release version and upgrade compatibility.
+    properties:
+      agent_version:
+        $ref: '#/$defs/semver'
+      requires_core:
+        type: object
+        additionalProperties: false
+        required:
+          - min_version
+        properties:
+          min_version:
+            $ref: '#/$defs/semver'
+            description: Minimum compatible RoboZilla core/runtime version.
+          max_version:
+            $ref: '#/$defs/semver'
+            description: Optional maximum compatible RoboZilla core/runtime version.
+          tested_versions:
+            type: array
+            description: Optional list of core/runtime versions this agent was tested against.
+            items:
+              $ref: '#/$defs/semver'
+      required_features:
+        type: array
+        description: Optional list of feature flags/capabilities required by this agent.
+        items:
+          $ref: '#/$defs/id_token'
+      upgrade_policy:
+        type: object
+        additionalProperties: false
+        description: Optional guardrails for automated or assisted upgrades.
+        properties:
+          on_incompatible_core:
+            type: string
+            enum: [block, warn]
+          allow_auto_migrate:
+            type: boolean

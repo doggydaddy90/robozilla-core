@@ -1,0 +1,214 @@
+# RoboZilla Artifact Schema
+#
+# This is a JSON Schema (Draft 2020-12) expressed as YAML.
+#
+# Artifacts are immutable, append-only outputs produced under a JobContract.
+# Artifacts are not memory. Memory entries may reference artifacts by id/ref.
+#
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://robozilla.ai/schemas/artifact.schema.yaml
+title: RoboZilla Artifact
+description: >-
+  Immutable output produced by an agent under an active JobContract. Content is
+  validated by a referenced schema (schema_ref). Artifacts are append-only and
+  cannot be mutated after creation.
+type: object
+additionalProperties: false
+required:
+  - api_version
+  - kind
+  - metadata
+  - spec
+properties:
+  api_version:
+    type: string
+    const: robozilla.ai/v1alpha1
+    description: Document structure version.
+  kind:
+    type: string
+    const: Artifact
+    description: Document type discriminator.
+  metadata:
+    $ref: '#/$defs/metadata'
+  spec:
+    $ref: '#/$defs/spec'
+
+$defs:
+  # --------
+  # Primitives
+  # --------
+  org_id:
+    type: string
+    minLength: 3
+    maxLength: 64
+    pattern: '^[a-z](?:[a-z0-9-]{1,62}[a-z0-9])$'
+
+  id_token:
+    type: string
+    minLength: 2
+    maxLength: 64
+    pattern: '^[a-z](?:[a-z0-9_.-]{0,62}[a-z0-9])$'
+
+  artifact_id:
+    type: string
+    minLength: 1
+    maxLength: 128
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+
+  job_id:
+    type: string
+    minLength: 1
+    maxLength: 128
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+
+  agent_id:
+    type: string
+    minLength: 3
+    maxLength: 64
+    pattern: '^[a-z](?:[a-z0-9-]{1,62}[a-z0-9])$'
+
+  uri_reference:
+    type: string
+    minLength: 1
+    maxLength: 2048
+    format: uri-reference
+
+  date_time:
+    type: string
+    format: date-time
+    maxLength: 64
+
+  # Canonical platform artifact categories (coarse). Domain-specific validation
+  # happens via schema_ref and content schemas elsewhere.
+  artifact_type:
+    type: string
+    enum:
+      - report
+      - plan
+      - dataset
+      - message
+      - decision_record
+      - evidence
+      - diagnostic
+      - workflow_definition
+      - other
+
+  json_value:
+    description: A JSON value (bounded for safety).
+    oneOf:
+      - type: object
+        additionalProperties: true
+        maxProperties: 500
+      - type: array
+        maxItems: 500
+        items: {}
+      - type: string
+        maxLength: 200000
+      - type: number
+      - type: boolean
+      - type: 'null'
+
+  # --------
+  # Top-level blocks
+  # --------
+  metadata:
+    type: object
+    additionalProperties: false
+    required:
+      - artifact_id
+      - artifact_type
+      - org_id
+    properties:
+      artifact_id:
+        $ref: '#/$defs/artifact_id'
+      artifact_type:
+        $ref: '#/$defs/artifact_type'
+      org_id:
+        $ref: '#/$defs/org_id'
+      title:
+        type: string
+        maxLength: 200
+      summary:
+        type: string
+        maxLength: 2000
+      tags:
+        type: array
+        description: Deterministic retrieval tags (stable tokens).
+        items:
+          $ref: '#/$defs/id_token'
+
+  spec:
+    type: object
+    additionalProperties: false
+    required:
+      - produced_by
+      - job_ref
+      - schema_ref
+      - content
+      - created_at
+      - invariants
+    properties:
+      produced_by:
+        type: object
+        additionalProperties: false
+        required:
+          - agent_id
+        description: Producing agent identity (agents only).
+        properties:
+          agent_id:
+            $ref: '#/$defs/agent_id'
+          role:
+            $ref: '#/$defs/id_token'
+            description: Optional role identifier (for deterministic retrieval).
+      job_ref:
+        $ref: '#/$defs/job_ref'
+      schema_ref:
+        $ref: '#/$defs/uri_reference'
+        description: Reference to the schema/contract that validates spec.content.
+      content:
+        $ref: '#/$defs/json_value'
+        description: Typed content validated against schema_ref by Flo/tooling.
+      created_at:
+        $ref: '#/$defs/date_time'
+      content_digest:
+        type: string
+        maxLength: 128
+        description: Optional digest of the content (e.g., sha256:...).
+      invariants:
+        $ref: '#/$defs/invariants'
+
+  job_ref:
+    type: object
+    additionalProperties: false
+    required:
+      - job_id
+    description: Artifacts must reference the JobContract that authorized them.
+    properties:
+      job_id:
+        $ref: '#/$defs/job_id'
+      ref:
+        $ref: '#/$defs/uri_reference'
+        description: Optional URI reference to the JobContract record.
+
+  invariants:
+    type: object
+    additionalProperties: false
+    required:
+      - append_only
+      - immutable_after_creation
+      - requires_job_contract
+      - flo_enforced
+    description: Platform-level invariants enforced as constants.
+    properties:
+      append_only:
+        type: boolean
+        const: true
+      immutable_after_creation:
+        type: boolean
+        const: true
+      requires_job_contract:
+        type: boolean
+        const: true
+      flo_enforced:
+        type: boolean
+        const: true

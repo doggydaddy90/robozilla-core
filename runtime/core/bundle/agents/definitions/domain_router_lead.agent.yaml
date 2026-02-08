@@ -1,0 +1,107 @@
+# AgentDefinition: domain_router_lead
+#
+# Routing-only, non-executing org_lead placeholder used by macro-domain orgs.
+#
+api_version: robozilla.ai/v1alpha1
+kind: AgentDefinition
+
+metadata:
+  agent_id: domain-router-lead
+  name: Domain Router Lead
+  role: domain_router_lead
+  description: >-
+    Non-executing org_lead placeholder used only for Flo Prime routing through
+    macro-domain organizations. This agent is not intended to run jobs, invoke
+    skills, access MCPs, read/write memory, or produce artifacts.
+  labels:
+    agent_tier: domain
+    execution: disabled
+  annotations:
+    robozilla.conventions.domain_org_placeholder: "true"
+
+spec:
+  responsibilities:
+    responsibilities:
+      - Provide an org_lead routing target inside a macro-domain Organization Manifest.
+      - Serve as a deterministic escalation target for domain routing decisions.
+    non_responsibilities:
+      - Execute jobs or perform work steps.
+      - Invoke skills or call MCPs.
+      - Read or write memory of any kind.
+      - Produce artifacts.
+      - Trigger workflows.
+
+  org_inclusion:
+    mode: allowlist
+    allow_org_ids:
+      - creative
+      - audio
+      - copy
+      - ops
+      - genesis
+
+  # Deny all skills by using an explicitly empty allowlist (schema requires a selector object).
+  skill_policy:
+    default_rule: deny
+    allow:
+      skill_ids: []
+
+  # Default none: no MCP access.
+  mcp_access:
+    allowed: []
+
+  # No memory access of any kind.
+  memory_access:
+    level: none
+    scopes: []
+
+  # Routing placeholder: treated as an org lead for routing purposes only.
+  authority:
+    level: org_lead
+
+  # If anything attempts to schedule/execute this role, escalate.
+  escalation:
+    default_target:
+      target_type: authority_level
+      authority_level: evaluator
+
+  # This role can recommend routing/escalation targets, but cannot decide/execute.
+  decision_rights:
+    mode: recommend
+
+  # Side effects are forbidden; even if allowed elsewhere, side effects require a job contract.
+  side_effects:
+    allowed: false
+    requires_human_approval: true
+
+  # Hard "never run" posture: zero concurrency and minimal timeout.
+  runtime_limits:
+    timeouts:
+      max_run_seconds: 5
+    retries:
+      max_attempts: 0
+      backoff_seconds: 0
+    concurrency:
+      max_parallel_runs: 0
+
+  safety:
+    posture: conservative
+    on_failure:
+      behavior: halt_and_report
+      emit_failure_artifact: false
+      redact_sensitive: true
+    refusal_policy:
+      refuse_on_policy_violation: true
+      refuse_on_missing_job_contract: true
+      refuse_on_ambiguous_instructions: true
+
+  # Platform-level invariants (must match schema constants).
+  invariants:
+    owns_workflows: false
+    can_self_trigger: false
+    requires_job_contract_for_side_effects: true
+
+  compatibility:
+    agent_version: 0.1.0
+    requires_core:
+      min_version: 0.1.0

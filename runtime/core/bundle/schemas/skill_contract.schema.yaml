@@ -1,0 +1,729 @@
+# RoboZilla Skill Contract Schema
+#
+# This is a JSON Schema (Draft 2020-12) expressed as YAML.
+#
+# Skills are ATOMIC, REUSABLE capabilities. A skill is a stateless function:
+# - No internal memory
+# - No embedded credentials
+# - No implicit side effects
+#
+# Skills can be invoked by agents and workflows, but they do not own workflows,
+# do not self-trigger, and may not mutate external/system state without an
+# explicit Job Contract governing the execution.
+#
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://robozilla.ai/schemas/skill_contract.schema.yaml
+title: RoboZilla Skill Contract
+description: >-
+  Contract for an atomic, reusable skill callable by agents and workflows. This
+  document defines a skill's interface, constraints, dependencies, safety
+  posture, and expected failure/observability behavior. It is vendor- and
+  domain-neutral.
+type: object
+additionalProperties: false
+required:
+  - api_version
+  - kind
+  - metadata
+  - spec
+properties:
+  api_version:
+    type: string
+    const: robozilla.ai/v1alpha1
+    description: Document structure version (not the skill's own release version).
+  kind:
+    type: string
+    const: SkillContract
+    description: Document type discriminator.
+  metadata:
+    $ref: '#/$defs/metadata'
+  spec:
+    $ref: '#/$defs/spec'
+
+$defs:
+  # --------
+  # Primitives
+  # --------
+  id_token:
+    type: string
+    minLength: 2
+    maxLength: 64
+    pattern: '^[a-z](?:[a-z0-9_.-]{0,62}[a-z0-9])$'
+    description: >-
+      Stable identifier token. Lowercase letters/digits plus '.', '_', '-'.
+
+  semver:
+    type: string
+    minLength: 1
+    maxLength: 64
+    pattern: '^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$'
+    description: Semantic Version (SemVer 2.0.0).
+
+  uri_reference:
+    type: string
+    minLength: 1
+    maxLength: 2048
+    format: uri-reference
+    description: URI reference resolvable by tooling (relative path or URL).
+
+  non_negative_int:
+    type: integer
+    minimum: 0
+    maximum: 1000000000
+
+  positive_int:
+    type: integer
+    minimum: 1
+    maximum: 1000000000
+
+  log_field_name:
+    type: string
+    minLength: 1
+    maxLength: 64
+    pattern: '^[A-Za-z][A-Za-z0-9_.-]{0,63}$'
+    description: >-
+      A structured log field name. Keep these stable to preserve analytics.
+
+  error_code:
+    type: string
+    minLength: 3
+    maxLength: 64
+    pattern: '^[A-Z][A-Z0-9_]{2,63}$'
+    description: >-
+      Stable, uppercase error code identifier (e.g., "INVALID_INPUT").
+
+  # --------
+  # Top-level blocks
+  # --------
+  metadata:
+    type: object
+    additionalProperties: false
+    required:
+      - skill_id
+      - name
+      - version
+      - description
+    properties:
+      skill_id:
+        $ref: '#/$defs/id_token'
+        description: Stable, globally unique skill identifier.
+      name:
+        type: string
+        minLength: 1
+        maxLength: 120
+        description: Human-friendly skill name.
+      version:
+        $ref: '#/$defs/semver'
+        description: Skill contract version.
+      description:
+        type: string
+        minLength: 1
+        maxLength: 2000
+        description: Human-friendly summary of what the skill does.
+      documentation_url:
+        type: string
+        format: uri
+        maxLength: 2048
+        description: Optional docs URL for humans.
+      labels:
+        type: object
+        description: Optional key/value labels for grouping and filtering.
+        propertyNames:
+          pattern: '^[a-zA-Z0-9_.-]{1,64}$'
+        additionalProperties:
+          type: string
+          maxLength: 256
+      annotations:
+        type: object
+        description: Optional non-semantic annotations for tooling.
+        propertyNames:
+          pattern: '^[a-zA-Z0-9_.-]{1,128}$'
+        additionalProperties:
+          type: string
+          maxLength: 2000
+
+  spec:
+    type: object
+    additionalProperties: false
+    required:
+      - classification
+      - input_schema
+      - output_schema
+      - side_effects
+      - risk_level
+      - dependencies
+      - idempotency
+      - runtime_limits
+      - observability
+      - preconditions
+      - postconditions
+      - failures
+      - invariants
+      - impact
+    properties:
+      classification:
+        $ref: '#/$defs/classification'
+      input_schema:
+        $ref: '#/$defs/schema_object'
+      output_schema:
+        $ref: '#/$defs/schema_object'
+      side_effects:
+        $ref: '#/$defs/side_effects'
+      risk_level:
+        $ref: '#/$defs/risk_level'
+      dependencies:
+        $ref: '#/$defs/dependencies'
+      idempotency:
+        $ref: '#/$defs/idempotency'
+      runtime_limits:
+        $ref: '#/$defs/runtime_limits'
+      observability:
+        $ref: '#/$defs/observability'
+      preconditions:
+        type: array
+        description: What must be true before this skill is executed.
+        items:
+          $ref: '#/$defs/condition'
+      postconditions:
+        type: array
+        description: What must be true after this skill successfully completes.
+        items:
+          $ref: '#/$defs/condition'
+      failures:
+        $ref: '#/$defs/failures'
+      job_contract:
+        $ref: '#/$defs/job_contract'
+      invariants:
+        $ref: '#/$defs/invariants'
+      impact:
+        $ref: '#/$defs/impact'
+      notes:
+        type: string
+        maxLength: 4000
+        description: Optional free-form notes for humans (no runtime semantics).
+    allOf:
+      # If a skill has any side effects (including read-only or external calls),
+      # it must declare a Job Contract reference that governs the execution.
+      - if:
+          properties:
+            side_effects:
+              enum: [read_only, write, external_call]
+        then:
+          required:
+            - job_contract
+      # If a skill performs external calls, it must explicitly use MCP and/or
+      # explicitly allow direct external network access (with an allowlist).
+      - if:
+          properties:
+            side_effects:
+              const: external_call
+        then:
+          anyOf:
+            - properties:
+                dependencies:
+                  properties:
+                    mcp:
+                      properties:
+                        required:
+                          minItems: 1
+              required: [dependencies]
+            - properties:
+                dependencies:
+                  properties:
+                    direct_external_network:
+                      properties:
+                        policy:
+                          const: allowlist
+              required: [dependencies]
+      # If the skill touches secrets/money/managed state, require at least one MCP dependency.
+      - if:
+          properties:
+            impact:
+              anyOf:
+                - properties:
+                    touches_secrets:
+                      const: true
+                - properties:
+                    touches_money:
+                      const: true
+                - properties:
+                    touches_managed_state:
+                      const: true
+        then:
+          properties:
+            dependencies:
+              properties:
+                mcp:
+                  properties:
+                    required:
+                      minItems: 1
+
+  # --------
+  # Classification / scoping
+  # --------
+  classification:
+    type: object
+    additionalProperties: false
+    required:
+      - category_id
+      - domain_tags
+    description: >-
+      Category and domain tags used to scope which agents/workflows may call
+      this skill.
+    properties:
+      category_id:
+        $ref: '#/$defs/id_token'
+        description: Primary category identifier for this skill.
+      domain_tags:
+        type: array
+        description: Domain-agnostic tags for discovery and policy scoping.
+        items:
+          $ref: '#/$defs/id_token'
+
+  # --------
+  # Input/output schema fragments
+  # --------
+  schema_object:
+    description: >-
+      A JSON Schema (Draft 2020-12) object describing inputs/outputs.
+    allOf:
+      - $ref: https://json-schema.org/draft/2020-12/schema
+      - type: object
+
+  # --------
+  # Side effects and risk
+  # --------
+  side_effects:
+    type: string
+    enum: [none, read_only, write, external_call]
+    description: >-
+      none: purely computational; no I/O.
+      read_only: reads external state without modifying it.
+      write: modifies external/system state.
+      external_call: performs outbound calls (HTTP/API/etc); may be read-only or write depending on target.
+
+  risk_level:
+    type: string
+    enum: [low, medium, high]
+    description: Declared operational risk for using this skill.
+
+  # --------
+  # Dependencies (MCP + direct external network)
+  # --------
+  dependencies:
+    type: object
+    additionalProperties: false
+    required:
+      - mcp
+      - direct_external_network
+    properties:
+      mcp:
+        type: object
+        additionalProperties: false
+        required:
+          - required
+        description: >-
+          MCP dependencies for accessing stateful systems or secrets. Skills must
+          not embed credentials; use MCP for secure access.
+        properties:
+          required:
+            type: array
+            description: Allowlist of MCP gateways this skill requires/uses.
+            items:
+              $ref: '#/$defs/mcp_ref'
+      direct_external_network:
+        type: object
+        additionalProperties: false
+        required:
+          - policy
+        description: >-
+          Direct outbound network access policy. Prefer MCP where possible.
+          If allowed, access must be restricted by an allowlist.
+        properties:
+          policy:
+            type: string
+            enum: [deny_all, allowlist]
+          allowlist:
+            $ref: '#/$defs/network_allowlist'
+          denylist:
+            $ref: '#/$defs/network_denylist'
+    allOf:
+      - if:
+          properties:
+            direct_external_network:
+              properties:
+                policy:
+                  const: allowlist
+        then:
+          properties:
+            direct_external_network:
+              required:
+                - allowlist
+
+  mcp_ref:
+    type: object
+    additionalProperties: false
+    required:
+      - mcp_id
+      - ref
+    properties:
+      mcp_id:
+        $ref: '#/$defs/id_token'
+        description: Stable MCP gateway identifier.
+      ref:
+        $ref: '#/$defs/uri_reference'
+        description: Reference to an MCP configuration/manifest (defined elsewhere).
+      required_scopes:
+        type: array
+        description: Optional scope list (strings are MCP-defined).
+        items:
+          type: string
+          minLength: 1
+          maxLength: 128
+      notes:
+        type: string
+        maxLength: 2000
+
+  network_allowlist:
+    type: object
+    additionalProperties: false
+    description: Allowed destinations for direct network access.
+    properties:
+      domains:
+        type: array
+        description: Allowed DNS hostnames (optionally with "*." wildcard prefix).
+        items:
+          type: string
+          minLength: 1
+          maxLength: 253
+          pattern: '^(?:\\*\\.)?[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+$'
+      urls:
+        type: array
+        description: Allowed URL prefixes (use sparingly; prefer domains).
+        items:
+          type: string
+          format: uri
+          maxLength: 2048
+      ip_cidrs:
+        type: array
+        description: Allowed IP ranges in CIDR notation (IPv4 or IPv6).
+        items:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[0-9A-Fa-f:.]+\\/[0-9]{1,3}$'
+
+  network_denylist:
+    type: object
+    additionalProperties: false
+    description: Explicitly blocked destinations (applies even if allowlisted).
+    properties:
+      domains:
+        type: array
+        items:
+          type: string
+          minLength: 1
+          maxLength: 253
+          pattern: '^(?:\\*\\.)?[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+$'
+      urls:
+        type: array
+        items:
+          type: string
+          format: uri
+          maxLength: 2048
+      ip_cidrs:
+        type: array
+        items:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[0-9A-Fa-f:.]+\\/[0-9]{1,3}$'
+
+  # --------
+  # Idempotency
+  # --------
+  idempotency:
+    type: object
+    additionalProperties: false
+    required:
+      - mode
+      - key_format
+    description: >-
+      Declares idempotency expectations. "required" means callers MUST provide
+      an idempotency key; "optional" means callers MAY provide a key and the
+      skill will honor it.
+    properties:
+      mode:
+        type: string
+        enum: [required, optional]
+      key_format:
+        type: object
+        additionalProperties: false
+        required:
+          - description
+        description: Expected idempotency key format.
+        properties:
+          description:
+            type: string
+            minLength: 1
+            maxLength: 500
+          pattern:
+            type: string
+            minLength: 1
+            maxLength: 256
+            description: Optional regex pattern for keys (if enforced).
+          examples:
+            type: array
+            items:
+              type: string
+              minLength: 1
+              maxLength: 200
+
+  # --------
+  # Runtime limits
+  # --------
+  runtime_limits:
+    type: object
+    additionalProperties: false
+    required:
+      - timeout_seconds
+      - retries
+    properties:
+      timeout_seconds:
+        $ref: '#/$defs/positive_int'
+        description: Hard timeout for a single skill invocation.
+      retries:
+        type: object
+        additionalProperties: false
+        required:
+          - max_attempts
+        properties:
+          max_attempts:
+            type: integer
+            minimum: 0
+            maximum: 1000
+            description: Maximum attempts for retryable failures.
+          backoff_seconds:
+            $ref: '#/$defs/non_negative_int'
+            description: Optional fixed backoff between attempts.
+
+  # --------
+  # Observability
+  # --------
+  observability:
+    type: object
+    additionalProperties: false
+    required:
+      - logs
+      - artifacts
+    description: >-
+      Observability requirements for consistent logging and artifact emission.
+      This is used for auditing and troubleshooting, not for domain logic.
+    properties:
+      logs:
+        type: object
+        additionalProperties: false
+        required:
+          - required_fields
+        properties:
+          required_fields:
+            type: array
+            minItems: 1
+            description: Structured log fields that MUST be present on each invocation.
+            items:
+              $ref: '#/$defs/log_field_name'
+          recommended_fields:
+            type: array
+            description: Optional extra structured log fields when available.
+            items:
+              $ref: '#/$defs/log_field_name'
+          redact_fields:
+            type: array
+            description: Fields that must be redacted in logs if present.
+            items:
+              $ref: '#/$defs/log_field_name'
+      artifacts:
+        type: object
+        additionalProperties: false
+        required:
+          - outputs
+        properties:
+          outputs:
+            type: array
+            description: Artifacts the skill may emit.
+            items:
+              $ref: '#/$defs/artifact_output'
+
+  artifact_output:
+    type: object
+    additionalProperties: false
+    required:
+      - artifact_type_id
+      - when
+    properties:
+      artifact_type_id:
+        $ref: '#/$defs/id_token'
+        description: Artifact type identifier (defined elsewhere).
+      when:
+        type: string
+        enum: [always, on_success, on_failure]
+      ref:
+        $ref: '#/$defs/uri_reference'
+        description: Optional reference to the artifact contract/schema (defined elsewhere).
+      description:
+        type: string
+        maxLength: 1000
+
+  # --------
+  # Preconditions and postconditions
+  # --------
+  condition:
+    type: object
+    additionalProperties: false
+    required:
+      - condition_id
+      - description
+      - enforcement
+    properties:
+      condition_id:
+        $ref: '#/$defs/id_token'
+      description:
+        type: string
+        minLength: 1
+        maxLength: 1000
+      enforcement:
+        type: string
+        enum: [hard, soft]
+        description: hard=must be satisfied; soft=best-effort (still observable).
+      notes:
+        type: string
+        maxLength: 2000
+
+  # --------
+  # Failure modes
+  # --------
+  failures:
+    type: object
+    additionalProperties: false
+    required:
+      - errors
+    properties:
+      errors:
+        type: array
+        minItems: 1
+        description: Declared error codes and retryability.
+        items:
+          $ref: '#/$defs/error_declaration'
+      notes:
+        type: string
+        maxLength: 4000
+
+  error_declaration:
+    type: object
+    additionalProperties: false
+    required:
+      - code
+      - retryable
+      - description
+    properties:
+      code:
+        $ref: '#/$defs/error_code'
+      retryable:
+        type: boolean
+        description: True if retrying the skill may succeed without changes.
+      description:
+        type: string
+        minLength: 1
+        maxLength: 1000
+      category:
+        type: string
+        enum: [invalid_input, dependency, timeout, rate_limited, policy, unknown]
+      recommended_action:
+        type: string
+        maxLength: 500
+
+  # --------
+  # Job contract reference (required when side effects != none)
+  # --------
+  job_contract:
+    type: object
+    additionalProperties: false
+    required:
+      - ref
+    description: >-
+      Reference to the Job Contract schema/contract that governs invocations of
+      this skill when side effects are possible. The job itself is defined elsewhere.
+    properties:
+      ref:
+        $ref: '#/$defs/uri_reference'
+      notes:
+        type: string
+        maxLength: 2000
+
+  # --------
+  # Impact declaration (used to enforce MCP dependency requirements)
+  # --------
+  impact:
+    type: object
+    additionalProperties: false
+    required:
+      - touches_managed_state
+      - touches_secrets
+      - touches_money
+    description: >-
+      Explicit declaration of whether this skill touches managed state, secrets,
+      or money. If any are true, the skill must declare an MCP dependency.
+    properties:
+      touches_managed_state:
+        type: boolean
+        description: True if the skill reads/writes non-public system state (DBs, CRMs, queues, etc).
+      touches_secrets:
+        type: boolean
+        description: True if the skill requires credentials/tokens/secret material (must be via MCP).
+      touches_money:
+        type: boolean
+        description: True if the skill can initiate charges, purchases, or other monetary impact.
+      notes:
+        type: string
+        maxLength: 2000
+    allOf:
+      - if:
+          properties:
+            touches_money:
+              const: true
+        then:
+          properties:
+            touches_managed_state:
+              const: true
+
+  # --------
+  # Security invariants (constants)
+  # --------
+  invariants:
+    type: object
+    additionalProperties: false
+    required:
+      - stateless
+      - stores_credentials
+      - unrestricted_network_calls_allowed
+      - side_effects_require_job_contract_ref
+    description: >-
+      Platform-level security invariants enforced as constants. These should not
+      vary per skill.
+    properties:
+      stateless:
+        type: boolean
+        const: true
+        description: Skills are stateless functions and must not maintain internal memory.
+      stores_credentials:
+        type: boolean
+        const: false
+        description: Skills must not store credentials (ever).
+      unrestricted_network_calls_allowed:
+        type: boolean
+        const: false
+        description: Skills must not perform unrestricted network calls.
+      side_effects_require_job_contract_ref:
+        type: boolean
+        const: true
+        description: Side effects must only occur under an explicit job contract reference.

@@ -1,0 +1,28 @@
+# RoboZilla Core Runtime configuration (build mode)
+#
+# All relative paths are resolved relative to THIS FILE's directory.
+#
+runtime:
+  role: dev  # dev|compute|vps
+  strict_validation: true
+  fail_closed: true
+
+service:
+  host: 0.0.0.0
+  port: 8080
+
+registry:
+  # Repo-root-relative refs are resolved by mounting the repo at /workspace in docker-compose.
+  schemas_dir: ../../../schemas
+  orgs_dir: ../../../orgs
+  agent_definitions_dir: ../../../agents/definitions
+  skill_contracts_dir: ../../../skills/contracts  # optional; may not exist yet
+
+storage:
+  driver: sqlite
+  sqlite:
+    path: ../state/robozilla_core.sqlite
+
+scheduler:
+  enabled: false
+  poll_interval_seconds: 10

@@ -1,0 +1,103 @@
+# OrganizationManifest: audio (macro-domain, routing-only)
+#
+# NON-SELLABLE. This organization exists only as a routing scope for Flo Prime.
+# It never executes work.
+#
+api_version: robozilla.ai/v1alpha1
+kind: OrganizationManifest
+
+metadata:
+  org_id: audio
+  display_name: Audio (Domain)
+  description: >-
+    Routing-only macro-domain organization used by Flo Prime. Non-sellable and
+    non-executing by construction.
+  labels:
+    macro_domain: audio
+    org_tier: domain
+    sellable: "false"
+    routing_only: "true"
+  annotations:
+    robozilla.conventions.domain_org: "true"
+
+spec:
+  purpose:
+    statement: >-
+      Provide deterministic routing scope for the audio macro-domain. This
+      organization does not execute jobs and produces no work artifacts.
+
+  domain_scope:
+    summary: Routing scope for audio macro-domain organizations.
+    in_scope:
+      - scope_id: routing_scope
+        description: Provide macro-domain routing scope for Flo Prime.
+        examples:
+          - Route a request into the audio domain and hand off to the org lead.
+    out_of_scope:
+      - scope_id: execution
+        description: Executing jobs, invoking skills, calling MCPs, or triggering workflows.
+
+  artifact_policy:
+    allowed_types:
+      - type_id: diagnostic
+        description: Diagnostics (should not be produced because execution is disabled).
+
+  agent_roles:
+    - role_id: domain_router_lead
+      ref: agents/definitions/domain_router_lead.agent.yaml
+      enabled: true
+      description: Routing placeholder Org Lead (non-executing).
+
+  skill_policy:
+    default_rule: deny
+    allow:
+      skill_ids: []
+
+  workflows:
+    n8n:
+      owned_workflow_ids: []
+
+  external_access:
+    mcp:
+      allowed: []
+    direct_network:
+      policy: deny_all
+
+  permissions:
+    boundary:
+      deny_by_default: true
+      statements: []
+    risk_limits:
+      max_risk_level: low
+      max_data_classification: public
+      allow_pii: false
+      allow_secrets: false
+
+  execution_limits:
+    concurrency:
+      max_active_jobs: 0
+      max_active_agent_runs: 0
+      max_active_workflow_runs: 0
+    rate_limits:
+      max_job_starts_per_minute: 0
+      max_external_requests_per_minute: 0
+      max_artifacts_per_minute: 0
+    cost_caps:
+      currency: USD
+      max_cost_per_job: 0
+      max_cost_per_day: 0
+    timeouts:
+      max_job_runtime_seconds: 60
+
+  flo_routing:
+    enabled: true
+    visibility:
+      mode: full
+
+  compatibility:
+    manifest_version: 0.1.0
+    requires_core:
+      min_version: 0.1.0
+    upgrade_policy:
+      on_incompatible_core: warn
+      allow_auto_migrate: true
