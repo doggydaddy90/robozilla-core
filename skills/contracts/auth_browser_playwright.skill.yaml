@@ -1,0 +1,511 @@
+api_version: robozilla.ai/v1alpha1
+kind: SkillContract
+metadata:
+  skill_id: auth_browser_playwright
+  name: Authenticated Browser (Playwright)
+  version: 0.1.0
+  description: >-
+    Performs authenticated, scripted browser interactions via a sandboxed Playwright
+    MCP gateway. Designed for controlled login + data extraction with strict limits
+    and artifact capture (text, DOM snapshots, screenshots).
+spec:
+  classification:
+    category_id: browser_automation
+    domain_tags:
+      - web
+      - playwright
+      - authenticated
+      - extraction
+      - screenshots
+
+  input_schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: Authenticated Browser Skill Input
+    type: object
+    additionalProperties: false
+    required:
+      - url
+      - credentials
+      - steps
+    properties:
+      url:
+        type: string
+        format: uri
+        maxLength: 2048
+        description: Starting URL to navigate to.
+      credentials:
+        type: object
+        additionalProperties: false
+        required:
+          - username
+          - password
+        properties:
+          username:
+            type: string
+            minLength: 1
+            maxLength: 256
+            description: Username (sensitive; must not be logged).
+          password:
+            type: string
+            minLength: 1
+            maxLength: 256
+            description: Password (sensitive; must not be logged).
+      steps:
+        type: array
+        minItems: 1
+        maxItems: 25
+        description: Ordered browser actions to execute.
+        items:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [action, url]
+              properties:
+                action:
+                  const: goto
+                url:
+                  type: string
+                  format: uri
+                  maxLength: 2048
+                wait_until:
+                  type: string
+                  enum: [load, domcontentloaded, networkidle]
+                  default: domcontentloaded
+                timeout_ms:
+                  type: integer
+                  minimum: 0
+                  maximum: 60000
+            - type: object
+              additionalProperties: false
+              required: [action, selector]
+              properties:
+                action:
+                  const: click
+                selector:
+                  type: string
+                  minLength: 1
+                  maxLength: 1024
+                timeout_ms:
+                  type: integer
+                  minimum: 0
+                  maximum: 60000
+                wait_for_navigation:
+                  type: boolean
+                  default: false
+            - type: object
+              additionalProperties: false
+              required: [action, selector]
+              properties:
+                action:
+                  const: fill_username
+                selector:
+                  type: string
+                  minLength: 1
+                  maxLength: 1024
+                timeout_ms:
+                  type: integer
+                  minimum: 0
+                  maximum: 60000
+            - type: object
+              additionalProperties: false
+              required: [action, selector]
+              properties:
+                action:
+                  const: fill_password
+                selector:
+                  type: string
+                  minLength: 1
+                  maxLength: 1024
+                timeout_ms:
+                  type: integer
+                  minimum: 0
+                  maximum: 60000
+            - type: object
+              additionalProperties: false
+              required: [action, selector, text]
+              properties:
+                action:
+                  const: type
+                selector:
+                  type: string
+                  minLength: 1
+                  maxLength: 1024
+                text:
+                  type: string
+                  minLength: 0
+                  maxLength: 2000
+                  description: Non-secret text to type. Use fill_username/fill_password for credentials.
+                delay_ms:
+                  type: integer
+                  minimum: 0
+                  maximum: 1000
+                  default: 0
+                timeout_ms:
+                  type: integer
+                  minimum: 0
+                  maximum: 60000
+            - type: object
+              additionalProperties: false
+              required: [action, key]
+              properties:
+                action:
+                  const: press
+                selector:
+                  type: string
+                  minLength: 1
+                  maxLength: 1024
+                key:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                  description: Playwright key name (e.g. Enter, Escape, ArrowDown).
+                timeout_ms:
+                  type: integer
+                  minimum: 0
+                  maximum: 60000
+            - type: object
+              additionalProperties: false
+              required: [action, selector]
+              properties:
+                action:
+                  const: wait_for_selector
+                selector:
+                  type: string
+                  minLength: 1
+                  maxLength: 1024
+                state:
+                  type: string
+                  enum: [attached, detached, visible, hidden]
+                  default: visible
+                timeout_ms:
+                  type: integer
+                  minimum: 0
+                  maximum: 60000
+            - type: object
+              additionalProperties: false
+              required: [action, selector, output_key]
+              properties:
+                action:
+                  const: extract_text
+                selector:
+                  type: string
+                  minLength: 1
+                  maxLength: 1024
+                output_key:
+                  type: string
+                  minLength: 2
+                  maxLength: 64
+                  pattern: '^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$'
+                  description: Key used to label the extracted text in the output.
+                attribute:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                  description: Optional attribute name to extract instead of textContent.
+            - type: object
+              additionalProperties: false
+              required: [action]
+              properties:
+                action:
+                  const: dom_snapshot
+                selector:
+                  type: string
+                  minLength: 1
+                  maxLength: 1024
+                  description: Optional selector to snapshot; omit for full document.
+                output_label:
+                  type: string
+                  maxLength: 128
+            - type: object
+              additionalProperties: false
+              required: [action]
+              properties:
+                action:
+                  const: screenshot
+                selector:
+                  type: string
+                  minLength: 1
+                  maxLength: 1024
+                  description: Optional selector to screenshot; omit for full page.
+                full_page:
+                  type: boolean
+                  default: false
+                output_label:
+                  type: string
+                  maxLength: 128
+      options:
+        type: object
+        additionalProperties: false
+        description: Optional run controls (enforced by the Playwright MCP gateway).
+        properties:
+          headless:
+            type: boolean
+            default: true
+          block_downloads:
+            type: boolean
+            default: true
+          block_third_party_requests:
+            type: boolean
+            default: true
+          max_dom_snapshots:
+            type: integer
+            minimum: 0
+            maximum: 10
+            default: 3
+          max_screenshots:
+            type: integer
+            minimum: 0
+            maximum: 10
+            default: 3
+          max_text_items:
+            type: integer
+            minimum: 0
+            maximum: 200
+            default: 50
+
+  output_schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: Authenticated Browser Skill Output
+    type: object
+    additionalProperties: false
+    required:
+      - text_data
+      - dom_snapshots
+      - screenshots
+      - run
+    properties:
+      text_data:
+        type: array
+        description: Extracted text data from extract_text steps.
+        items:
+          type: object
+          additionalProperties: false
+          required: [key, value]
+          properties:
+            key:
+              type: string
+              minLength: 1
+              maxLength: 64
+            value:
+              type: string
+            url:
+              type: string
+              format: uri
+              maxLength: 2048
+            selector:
+              type: string
+              maxLength: 1024
+            step_index:
+              type: integer
+              minimum: 0
+      dom_snapshots:
+        type: array
+        description: DOM HTML snapshots captured during the run.
+        items:
+          type: object
+          additionalProperties: false
+          required: [url, html]
+          properties:
+            label:
+              type: string
+              maxLength: 128
+            url:
+              type: string
+              format: uri
+              maxLength: 2048
+            html:
+              type: string
+              description: Serialized HTML (may be truncated by limits).
+            step_index:
+              type: integer
+              minimum: 0
+      screenshots:
+        type: array
+        description: Screenshots captured during the run.
+        items:
+          type: object
+          additionalProperties: false
+          required: [url, mime_type, encoding, data]
+          properties:
+            label:
+              type: string
+              maxLength: 128
+            url:
+              type: string
+              format: uri
+              maxLength: 2048
+            mime_type:
+              type: string
+              const: image/png
+            encoding:
+              type: string
+              const: base64
+            data:
+              type: string
+              description: Base64-encoded PNG bytes.
+            step_index:
+              type: integer
+              minimum: 0
+      run:
+        type: object
+        additionalProperties: false
+        required: [final_url, steps_executed]
+        properties:
+          final_url:
+            type: string
+            format: uri
+            maxLength: 2048
+          steps_executed:
+            type: integer
+            minimum: 0
+          warnings:
+            type: array
+            items:
+              type: string
+              maxLength: 500
+
+  side_effects: external_call
+  risk_level: high
+
+  dependencies:
+    mcp:
+      required:
+        - mcp_id: playwright
+          ref: mcp://playwright
+          required_scopes:
+            - browser.launch
+            - browser.navigate
+            - browser.interact
+            - browser.capture
+            - browser.close
+    direct_external_network:
+      policy: deny_all
+
+  idempotency:
+    mode: required
+    key_format:
+      description: >-
+        Deterministic key for a single run (e.g., sha256 of normalized url + username +
+        normalized steps). Prevents duplicate executions when retried.
+      pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+      examples:
+        - auth_browser:example.com:20260209:1
+        - 2f4c3b1e3c0a4e0f8d2a9c6b0f1e9d4c
+
+  runtime_limits:
+    timeout_seconds: 120
+    retries:
+      max_attempts: 1
+      backoff_seconds: 0
+
+  observability:
+    logs:
+      required_fields:
+        - job_id
+        - skill_id
+        - target_url
+        - target_domain
+        - step_count
+        - duration_ms
+        - result_status
+      recommended_fields:
+        - final_url
+        - steps_executed
+        - artifact_counts
+        - mcp_id
+      redact_fields:
+        - credentials.username
+        - credentials.password
+        - cookies
+        - headers.authorization
+    artifacts:
+      outputs:
+        - artifact_type_id: extracted_text
+          when: on_success
+          description: Structured extracted text data.
+        - artifact_type_id: dom_snapshot
+          when: on_success
+          description: DOM HTML snapshots (full document or selector-scoped).
+        - artifact_type_id: screenshot_png
+          when: on_success
+          description: PNG screenshots captured during the run.
+        - artifact_type_id: browser_trace
+          when: on_failure
+          description: Optional Playwright trace for debugging (redacted).
+
+  preconditions:
+    - condition_id: active_job_contract
+      description: Invocation is governed by an active JobContract that allowlists this skill and the required MCP gateway.
+      enforcement: hard
+    - condition_id: target_allowlisted
+      description: Target URL domain and required subresource domains are allowlisted by the effective network policy (no unrestricted network).
+      enforcement: hard
+    - condition_id: safe_steps
+      description: Steps contain only allowlisted actions and remain within declared limits (no downloads/uploads/payments).
+      enforcement: hard
+    - condition_id: secrets_handling
+      description: Credentials and session material are treated as secrets and never logged or returned.
+      enforcement: hard
+
+  postconditions:
+    - condition_id: browser_closed
+      description: Browser context is closed and no cookies/storage/session data are persisted.
+      enforcement: hard
+    - condition_id: outputs_redacted
+      description: Outputs/artifacts contain no credentials, session cookies, or authorization headers.
+      enforcement: hard
+    - condition_id: artifacts_emitted
+      description: On success, emitted artifacts match the declared output_schema and observability.artifacts.outputs.
+      enforcement: soft
+
+  failures:
+    errors:
+      - code: INVALID_INPUT
+        retryable: false
+        category: invalid_input
+        description: Required fields are missing or schema validation failed.
+        recommended_action: Fix the input payload to match input_schema.
+      - code: AUTH_FAILED
+        retryable: false
+        category: dependency
+        description: Login failed (invalid credentials, MFA required, or unexpected login flow).
+        recommended_action: Confirm credentials and update steps to match the site login flow.
+      - code: SELECTOR_NOT_FOUND
+        retryable: false
+        category: invalid_input
+        description: A required selector was not found during click/fill/type/wait/extract.
+        recommended_action: Update selectors or add wait_for_selector steps.
+      - code: NAVIGATION_TIMEOUT
+        retryable: true
+        category: timeout
+        description: Navigation or waits exceeded timeouts.
+        recommended_action: Retry once or increase per-step timeout_ms within allowed limits.
+      - code: MCP_UNAVAILABLE
+        retryable: true
+        category: dependency
+        description: Required MCP gateway is unavailable or not authorized.
+        recommended_action: Restore MCP connectivity/permissions or re-run when available.
+      - code: POLICY_VIOLATION
+        retryable: false
+        category: policy
+        description: Execution violated safety policy (network restrictions or disallowed action).
+        recommended_action: Adjust JobContract permissions/network allowlist or remove disallowed steps.
+      - code: OUTPUT_LIMIT_EXCEEDED
+        retryable: false
+        category: policy
+        description: Artifact or output size/count exceeded enforced limits.
+        recommended_action: Reduce capture volume (fewer snapshots/screenshots, narrower selectors).
+
+  job_contract:
+    ref: https://robozilla.ai/schemas/job_contract.schema.yaml
+
+  invariants:
+    stateless: true
+    stores_credentials: false
+    unrestricted_network_calls_allowed: false
+    side_effects_require_job_contract_ref: true
+
+  impact:
+    touches_managed_state: true
+    touches_secrets: true
+    touches_money: false
