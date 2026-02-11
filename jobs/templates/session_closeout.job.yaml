@@ -1,0 +1,108 @@
+api_version: robozilla.ai/v1alpha1
+kind: JobContract
+metadata:
+  job_id: template:session_closeout:v0
+  org_id: ops
+  title: Session Closeout (Template)
+  tags:
+    - session
+    - closeout
+    - governance
+
+spec:
+  requested_by:
+    actor_type: system
+    actor_id: flo
+    authority_level: evaluator
+    confidence: 1
+    notes: Template authoring
+
+  goal: >-
+    Produce session closeout artifacts (SessionSummary, DecisionLog, KnowledgeGaps,
+    and NextActions TODOs) from the active job context and session artifacts.
+    Outputs must be artifacts only; no memory mutation, no truth promotion, no Genesis.
+
+  required_artifacts:
+    - artifact_type: report
+      schema_ref: skills/contracts/session_closeout.skill.yaml#/spec/output_schema/properties/session_summary
+      min_count: 1
+      description: SessionSummary artifact
+      acceptance_notes: Must be a concise summary of work completed and context for next session.
+    - artifact_type: decision_record
+      schema_ref: skills/contracts/session_closeout.skill.yaml#/spec/output_schema/properties/decision_log
+      min_count: 1
+      description: DecisionLog artifact
+      acceptance_notes: Must list decisions as artifacts only; no truth promotion.
+    - artifact_type: diagnostic
+      schema_ref: skills/contracts/session_closeout.skill.yaml#/spec/output_schema/properties/knowledge_gaps
+      min_count: 1
+      description: KnowledgeGaps artifact
+      acceptance_notes: Must list unknowns/gaps as artifacts only (no Genesis triggered).
+    - artifact_type: plan
+      schema_ref: skills/contracts/session_closeout.skill.yaml#/spec/output_schema/properties/next_actions
+      min_count: 1
+      description: NextActions artifact
+      acceptance_notes: Must provide actionable TODOs for the next session.
+
+  permissions_snapshot:
+    skills:
+      allowed_skill_ids:
+        - session_closeout
+      allowed_skill_categories:
+        - governance
+    mcp:
+      allowed: []
+    direct_external_network:
+      policy: deny_all
+
+  execution_limits:
+    max_iterations: 3
+    max_runtime_seconds: 300
+    cost_cap:
+      currency: USD
+      max_cost: 1.0
+
+  stop_conditions:
+    - condition_type: goal_achieved
+      description: Closeout artifacts produced and ready for evaluation.
+      enforcement: soft
+    - condition_type: evaluation_passed
+      description: Evaluation accepted artifacts; job may complete.
+      enforcement: hard
+    - condition_type: evaluation_failed
+      description: Evaluation rejected artifacts; job must fail.
+      enforcement: hard
+    - condition_type: max_iterations_reached
+      description: Iteration cap reached.
+      enforcement: hard
+    - condition_type: max_runtime_reached
+      description: Runtime cap reached.
+      enforcement: hard
+    - condition_type: expires_at_reached
+      description: Job expired.
+      enforcement: hard
+    - condition_type: constraint_violation
+      description: Contract/policy violation.
+      enforcement: hard
+    - condition_type: missing_required_artifacts
+      description: Required artifacts were not produced.
+      enforcement: hard
+
+  escalation:
+    default_target:
+      target_type: authority_level
+      authority_level: evaluator
+    notes: Escalate to evaluator on schema/policy issues.
+
+  timestamps:
+    created_at: '2026-02-09T00:00:00Z'
+    expires_at: '2026-02-16T00:00:00Z'
+
+  status:
+    state: created
+    status_updated_at: '2026-02-09T00:00:00Z'
+
+  invariants:
+    no_side_effects_without_active_job_contract: true
+    immutable_after_creation_except_status: true
+    flo_enforced: true

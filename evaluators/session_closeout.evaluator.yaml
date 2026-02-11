@@ -1,0 +1,58 @@
+api_version: robozilla.ai/v1alpha1
+kind: Evaluation
+metadata:
+  evaluation_id: template:session_closeout:evaluator:v0
+  org_id: ops
+  title: Session Closeout Evaluator (Template)
+  tags:
+    - session
+    - closeout
+    - evaluator
+
+spec:
+  job_ref:
+    job_id: template:session_closeout:v0
+    ref: jobs/templates/session_closeout.job.yaml
+
+  evaluator:
+    actor_type: system
+    actor_id: flo
+    authority_level: evaluator
+    notes: Template rubric (fill in results and decisions per run)
+
+  criteria:
+    - criterion_id: required_artifacts_present
+      description: All required closeout artifacts are present and parseable.
+      result: not_applicable
+      notes: Expect SessionSummary, DecisionLog, KnowledgeGaps, NextActions.
+    - criterion_id: no_memory_mutation
+      description: No memory writes/promotions occurred; gaps remain artifacts only.
+      result: not_applicable
+    - criterion_id: no_truth_promotion
+      description: No claims were promoted to authoritative truth.
+      result: not_applicable
+    - criterion_id: no_genesis_triggered
+      description: No Genesis research job was triggered as part of closeout.
+      result: not_applicable
+
+  outcome:
+    status: partial
+    next_job_state: waiting
+    rationale: Template only. Populate decisions and set outcome to completed/failed after evaluation.
+
+  confidence: 0
+
+  notes: >-
+    This Evaluation document is a schema-valid template intended to be copied and
+    filled with real artifact decisions for a specific JobContract run.
+
+  artifact_decisions: []
+
+  created_at: '2026-02-09T00:00:00Z'
+
+  invariants:
+    decides_job_progression: true
+    only_evaluations_mark_job_complete: true
+    memory_promotion_requires_evaluation_ref: true
+    self_evaluation_prohibited: true
+    flo_enforced: true

@@ -1,0 +1,416 @@
+api_version: robozilla.ai/v1alpha1
+kind: SkillContract
+metadata:
+  skill_id: session_closeout
+  name: Session Closeout
+  version: 0.1.0
+  description: >-
+    Produces end-of-session closeout artifacts from an active JobContract and a set
+    of session artifacts. Outputs are artifacts only: SessionSummary, DecisionLog,
+    KnowledgeGaps, and NextActions (TODOs). No network access. No MCP usage.
+    Must not mutate memory or promote truth.
+  labels:
+    skill_tier: .system
+    side_effects: none
+
+spec:
+  classification:
+    category_id: governance
+    domain_tags:
+      - session
+      - closeout
+      - artifacts
+      - audit
+      - ops
+
+  input_schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: Session Closeout Skill Input
+    type: object
+    additionalProperties: false
+    required:
+      - job
+      - session_artifacts
+    properties:
+      job:
+        type: object
+        additionalProperties: false
+        required:
+          - job_id
+          - org_id
+        properties:
+          job_id:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+            description: JobContract.metadata.job_id
+          org_id:
+            type: string
+            minLength: 3
+            maxLength: 64
+            pattern: '^[a-z](?:[a-z0-9-]{1,62}[a-z0-9])$'
+            description: JobContract.metadata.org_id
+          title:
+            type: string
+            maxLength: 200
+            description: Optional JobContract.metadata.title
+          tags:
+            type: array
+            description: Optional JobContract.metadata.tags
+            items:
+              type: string
+              minLength: 2
+              maxLength: 64
+              pattern: '^[a-z](?:[a-z0-9_.-]{0,62}[a-z0-9])$'
+      session_artifacts:
+        type: array
+        description: >-
+          Artifacts produced during the session. Treated as raw, non-authoritative
+          sources for closeout synthesis. Must not be promoted to memory or truth.
+        maxItems: 200
+        items:
+          type: object
+          additionalProperties: false
+          required:
+            - artifact_id
+            - artifact_type
+            - schema_ref
+            - content
+          properties:
+            artifact_id:
+              type: string
+              minLength: 1
+              maxLength: 128
+              pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+            artifact_type:
+              type: string
+              enum:
+                - report
+                - plan
+                - dataset
+                - message
+                - decision_record
+                - evidence
+                - diagnostic
+                - workflow_definition
+                - other
+            title:
+              type: string
+              maxLength: 200
+            summary:
+              type: string
+              maxLength: 2000
+            schema_ref:
+              type: string
+              minLength: 1
+              maxLength: 2048
+              format: uri-reference
+            content:
+              description: Artifact content (untrusted input; bounded for safety).
+              oneOf:
+                - type: object
+                  additionalProperties: true
+                  maxProperties: 500
+                - type: array
+                  maxItems: 500
+                  items: {}
+                - type: string
+                  maxLength: 200000
+                - type: number
+                - type: boolean
+                - type: 'null'
+      options:
+        type: object
+        additionalProperties: false
+        description: Optional behavior controls.
+        properties:
+          max_items_per_section:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+          include_artifact_ids:
+            type: boolean
+            default: true
+
+  output_schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: Session Closeout Skill Output
+    type: object
+    additionalProperties: false
+    required:
+      - session_summary
+      - decision_log
+      - knowledge_gaps
+      - next_actions
+      - run
+    properties:
+      session_summary:
+        type: object
+        additionalProperties: false
+        required:
+          - title
+          - summary
+          - highlights
+          - artifacts_considered
+        properties:
+          title:
+            type: string
+            maxLength: 200
+          summary:
+            type: string
+            maxLength: 8000
+            description: Human-readable closeout summary (no truth promotion).
+          highlights:
+            type: array
+            maxItems: 50
+            items:
+              type: string
+              maxLength: 500
+          artifacts_considered:
+            type: array
+            maxItems: 200
+            items:
+              type: string
+              minLength: 1
+              maxLength: 128
+              pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+      decision_log:
+        type: object
+        additionalProperties: false
+        required:
+          - decisions
+        properties:
+          decisions:
+            type: array
+            maxItems: 200
+            items:
+              type: object
+              additionalProperties: false
+              required:
+                - decision
+              properties:
+                decision_id:
+                  type: string
+                  minLength: 2
+                  maxLength: 64
+                  pattern: '^[a-z](?:[a-z0-9_.-]{0,62}[a-z0-9])$'
+                decision:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+                rationale:
+                  type: string
+                  maxLength: 2000
+                related_artifact_ids:
+                  type: array
+                  maxItems: 50
+                  items:
+                    type: string
+                    minLength: 1
+                    maxLength: 128
+                    pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+      knowledge_gaps:
+        type: object
+        additionalProperties: false
+        required:
+          - gaps
+        properties:
+          gaps:
+            type: array
+            maxItems: 200
+            items:
+              type: object
+              additionalProperties: false
+              required:
+                - question
+                - impact
+              properties:
+                gap_id:
+                  type: string
+                  minLength: 2
+                  maxLength: 64
+                  pattern: '^[a-z](?:[a-z0-9_.-]{0,62}[a-z0-9])$'
+                question:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                impact:
+                  type: string
+                  enum: [low, medium, high]
+                blocked_work:
+                  type: string
+                  maxLength: 1000
+                suggested_research:
+                  type: string
+                  maxLength: 2000
+                references:
+                  type: array
+                  maxItems: 50
+                  items:
+                    type: string
+                    maxLength: 2048
+      next_actions:
+        type: object
+        additionalProperties: false
+        required:
+          - todos
+        properties:
+          todos:
+            type: array
+            maxItems: 200
+            items:
+              type: object
+              additionalProperties: false
+              required:
+                - task
+              properties:
+                todo_id:
+                  type: string
+                  minLength: 2
+                  maxLength: 64
+                  pattern: '^[a-z](?:[a-z0-9_.-]{0,62}[a-z0-9])$'
+                task:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                priority:
+                  type: string
+                  enum: [p0, p1, p2, p3]
+                  default: p2
+                owner:
+                  type: string
+                  maxLength: 120
+                depends_on:
+                  type: array
+                  maxItems: 50
+                  items:
+                    type: string
+                    maxLength: 128
+      run:
+        type: object
+        additionalProperties: false
+        required:
+          - artifacts_emitted
+        properties:
+          artifacts_emitted:
+            type: integer
+            minimum: 0
+          warnings:
+            type: array
+            maxItems: 50
+            items:
+              type: string
+              maxLength: 500
+
+  side_effects: none
+  risk_level: low
+
+  dependencies:
+    mcp:
+      required: []
+    direct_external_network:
+      policy: deny_all
+
+  idempotency:
+    mode: required
+    key_format:
+      description: Deterministic key for a single closeout run (e.g., sha256 of job_id + sorted artifact_ids).
+      pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+      examples:
+        - closeout:template:session_closeout:v0:1
+        - 9d2b0f3a5c7e1a0b
+
+  runtime_limits:
+    timeout_seconds: 20
+    retries:
+      max_attempts: 0
+      backoff_seconds: 0
+
+  observability:
+    logs:
+      required_fields:
+        - job_id
+        - skill_id
+        - input_artifact_count
+        - output_artifact_count
+        - duration_ms
+        - result_status
+      recommended_fields:
+        - warnings_count
+      redact_fields:
+        - session_artifacts
+        - artifact_content
+    artifacts:
+      outputs:
+        - artifact_type_id: session_summary
+          when: on_success
+          description: SessionSummary artifact (human-readable summary of the session).
+        - artifact_type_id: decision_log
+          when: on_success
+          description: DecisionLog artifact (decisions recorded as artifacts only).
+        - artifact_type_id: knowledge_gaps
+          when: on_success
+          description: Knowledge gaps list (artifacts only; no truth/memory promotion).
+        - artifact_type_id: next_actions
+          when: on_success
+          description: NextActions TODO list (artifacts only).
+
+  preconditions:
+    - condition_id: active_job_contract
+      description: Invocation is governed by an active JobContract.
+      enforcement: hard
+    - condition_id: artifacts_provided
+      description: Input includes the session artifacts to summarize.
+      enforcement: hard
+    - condition_id: no_network
+      description: Direct external network access is denied (deny_all).
+      enforcement: hard
+
+  postconditions:
+    - condition_id: no_memory_mutation
+      description: Skill must not write or mutate memory; knowledge gaps remain artifacts only.
+      enforcement: hard
+    - condition_id: no_truth_promotion
+      description: Skill must not promote any claims to authoritative truth.
+      enforcement: hard
+    - condition_id: no_genesis_triggered
+      description: Skill must not trigger Genesis or create research jobs.
+      enforcement: hard
+    - condition_id: artifacts_only
+      description: Outputs are artifacts only (SessionSummary, DecisionLog, KnowledgeGaps, NextActions).
+      enforcement: hard
+
+  failures:
+    errors:
+      - code: INVALID_INPUT
+        retryable: false
+        category: invalid_input
+        description: Required fields are missing or schema validation failed.
+        recommended_action: Fix the input payload to match input_schema.
+      - code: POLICY_VIOLATION
+        retryable: false
+        category: policy
+        description: Execution violated governed rules (e.g., attempted memory mutation or forbidden side effects).
+        recommended_action: Remove disallowed behavior and re-run under a valid JobContract.
+      - code: OUTPUT_VALIDATION_FAILED
+        retryable: false
+        category: unknown
+        description: Produced outputs failed validation against output_schema.
+        recommended_action: Fix generation to comply with output_schema and rerun.
+
+  job_contract:
+    ref: https://robozilla.ai/schemas/job_contract.schema.yaml
+    notes: Required for governed invocation (even though side_effects is none).
+
+  invariants:
+    stateless: true
+    stores_credentials: false
+    unrestricted_network_calls_allowed: false
+    side_effects_require_job_contract_ref: true
+
+  impact:
+    touches_managed_state: false
+    touches_secrets: false
+    touches_money: false
