@@ -40,6 +40,8 @@ spec:
     allow:
       skill_ids:
       - session_closeout
+      skill_categories:
+      - governance
   workflows:
     n8n:
       owned_workflow_ids: []
