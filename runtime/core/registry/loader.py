@@ -14,6 +14,8 @@ import yaml
 
 from errors import PolicyViolationError
 
+REPO_SKILL_CONTRACTS_DIR = Path("/repo/skills/contracts")
+
 
 @dataclass(frozen=True)
 class LoadedDocument:
@@ -46,3 +48,9 @@ def iter_yaml_files(root: Path) -> Iterable[Path]:
             continue
         yield p
 
+
+def select_skill_contracts_dir(bundle_dir: Path) -> Path:
+    """Prefer loading SkillContracts from a mounted repo path if present, else fall back to the bundle path."""
+    if REPO_SKILL_CONTRACTS_DIR.exists():
+        return REPO_SKILL_CONTRACTS_DIR
+    return bundle_dir

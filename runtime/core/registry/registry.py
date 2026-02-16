@@ -15,14 +15,17 @@ Fail-closed rules:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from errors import PolicyViolationError
-from registry.loader import iter_yaml_files, load_yaml_document
+from registry.loader import iter_yaml_files, load_yaml_document, select_skill_contracts_dir
 from registry.schema_validator import SchemaValidator
 from utils import deep_get, is_external_uri_reference
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_repo_ref(repo_root: Path, ref: str) -> Path:
@@ -92,6 +95,7 @@ class Registry:
         schema_validator: SchemaValidator,
     ) -> "Registry":
         repo_root = orgs_dir.parent.resolve()
+        effective_skill_contracts_dir = select_skill_contracts_dir(skill_contracts_dir)
 
         agents: dict[str, AgentRecord] = {}
         agents_by_path: dict[Path, AgentRecord] = {}
@@ -179,8 +183,8 @@ class Registry:
 
         # 4) Load SkillContracts if the directory exists (optional in build mode).
         skills: dict[tuple[str, str], SkillRecord] = {}
-        if skill_contracts_dir.exists():
-            for p in iter_yaml_files(skill_contracts_dir):
+        if effective_skill_contracts_dir.exists():
+            for p in iter_yaml_files(effective_skill_contracts_dir):
                 doc = load_yaml_document(p)
                 if doc.kind != "SkillContract":
                     continue
@@ -191,6 +195,10 @@ class Registry:
                 if key in skills:
                     raise PolicyViolationError(f"Duplicate SkillContract {skill_id}@{version} ({skills[key].path} and {p})")
                 skills[key] = SkillRecord(skill_id=skill_id, version=version, path=p.resolve(), document=doc.data)
+
+        logger.info("Loaded %d SkillContracts", len(skills))
+        logger.info("Loaded %d AgentDefinitions", len(agents))
+        logger.info("Loaded %d OrganizationManifests", len(orgs))
 
         return cls(repo_root=repo_root, orgs=orgs, agents=agents, skills=skills)
 
