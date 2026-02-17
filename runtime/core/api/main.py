@@ -25,15 +25,32 @@ from evaluator.service import EvaluationService
 from executor.engine import JobEngine
 from registry.registry import Registry
 from registry.schema_validator import SchemaValidator
+from storage.interfaces import ArtifactStore
 from storage.sqlite import SQLiteStores
+from utils import deep_get
 
 logger = logging.getLogger(__name__)
+
+
+def _as_list(v: Any) -> list[Any]:
+    if v is None:
+        return []
+    return v if isinstance(v, list) else []
+
+
+def _as_dict(v: Any) -> dict[str, Any]:
+    if not isinstance(v, dict):
+        raise PolicyViolationError("Expected object")
+    return v
 
 
 @dataclass(frozen=True)
 class AppComponents:
     engine: JobEngine
     evaluator: EvaluationService
+    schema_validator: SchemaValidator
+    registry: Registry
+    artifact_store: ArtifactStore
 
 
 def _load_logging_config(path: Path) -> dict[str, Any]:
@@ -97,7 +114,13 @@ def _build_components() -> AppComponents:
     engine = JobEngine(schema_validator=schema_validator, registry=registry, job_store=stores.jobs, limits=limits, execution_deferred=True)
     evaluator = EvaluationService(schema_validator=schema_validator, registry=registry, evaluation_store=stores.evaluations, job_store=stores.jobs)
 
-    return AppComponents(engine=engine, evaluator=evaluator)
+    return AppComponents(
+        engine=engine,
+        evaluator=evaluator,
+        schema_validator=schema_validator,
+        registry=registry,
+        artifact_store=stores.artifacts,
+    )
 
 
 app = FastAPI(title="RoboZilla Core Runtime (Build Mode)", version="0.1.0")
@@ -145,6 +168,12 @@ def _components() -> AppComponents:
     return app.state.components
 
 
+@app.get("/health")
+def health() -> dict[str, Any]:
+    """Health check for runtime availability. Returns 200 when registry and stores are loaded."""
+    return {"status": "ok", "mode": "build"}
+
+
 @app.post("/jobs")
 def submit_job(job: dict[str, Any] = Body(...)) -> dict[str, Any]:
     res = _components().engine.submit_job(job)
@@ -167,6 +196,50 @@ def run_job(job_id: str) -> dict[str, Any]:
 def stop_job(job_id: str) -> dict[str, Any]:
     res = _components().engine.stop_job(job_id)
     return {"job": res.job}
+
+
+def _enforce_artifact_policy(artifact: dict[str, Any], *, engine: JobEngine, registry: Registry) -> None:
+    """Ensure artifact is allowed by job and org policy. Job must exist and be non-terminal."""
+    job_id = str(deep_get(artifact, ["spec", "job_ref", "job_id"]))
+    org_id = str(deep_get(artifact, ["metadata", "org_id"]))
+    artifact_type = str(deep_get(artifact, ["metadata", "artifact_type"]))
+    producing_agent_id = str(deep_get(artifact, ["spec", "produced_by", "agent_id"]))
+
+    job = engine.get_job(job_id)
+    job_org_id = str(deep_get(job, ["metadata", "org_id"]))
+    if job_org_id != org_id:
+        raise PolicyViolationError("Artifact.metadata.org_id must match JobContract.metadata.org_id")
+
+    state = str(deep_get(job, ["spec", "status", "state"]))
+    if state in ("completed", "failed", "expired"):
+        raise ConflictError(f"Cannot submit artifact for terminal job (state={state})")
+
+    if not registry.has_org(org_id):
+        raise PolicyViolationError(f"Unknown org_id: {org_id}")
+
+    org = registry.get_org(org_id).document
+    allowed = {str(_as_dict(x).get("type_id")) for x in _as_list(deep_get(org, ["spec", "artifact_policy", "allowed_types"]))}
+    if artifact_type not in allowed:
+        raise PolicyViolationError(f"Artifact type {artifact_type} is not allowed by org policy")
+
+    included_agents = registry.included_agent_ids_for_org(org_id)
+    if producing_agent_id and producing_agent_id not in included_agents:
+        raise PolicyViolationError(f"Producing agent {producing_agent_id} is not included in org {org_id}")
+
+
+@app.post("/artifacts")
+def submit_artifact(artifact: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    comps = _components()
+    comps.schema_validator.validate("Artifact", artifact)
+    _enforce_artifact_policy(artifact, engine=comps.engine, registry=comps.registry)
+    comps.artifact_store.append(artifact)
+    return {"artifact": artifact}
+
+
+@app.get("/artifacts/{artifact_id}")
+def get_artifact(artifact_id: str) -> dict[str, Any]:
+    artifact = _components().artifact_store.get(artifact_id)
+    return {"artifact": artifact}
 
 
 @app.post("/evaluations")

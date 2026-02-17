@@ -39,6 +39,12 @@
 # - `config/logging.yaml`  : Python logging (dictConfig)
 # - `config/limits.yaml`   : global hard limits (upper bounds)
 #
+# **Registry source (canonical)**
+# When /repo is mounted (e.g. Docker volume), registry loads from /repo/orgs,
+# /repo/agents/definitions, /repo/skills/contracts. Repo is the source of truth.
+# When /repo is not mounted, runtime falls back to /app/bundle/* (build-time snapshot).
+# Bundle must mirror repo; do not edit bundle manually.
+#
 # **Build mode**
 # Build mode means:
 # - Contract enforcement is ON.
@@ -61,12 +67,17 @@
 # 2. `copy .env.example .env` (then edit paths if needed)
 # 3. `docker compose up --build`
 #
+# Docker Compose mounts repo root at `/repo` so registry loads from repo (canonical).
+# Path `../../` is relative to compose file; ensure repo root contains orgs/, agents/, skills/.
 # Docker Compose uses host networking and binds to `API_BIND` only (default `127.0.0.1`).
 # There are no published container ports in `docker-compose.yml`.
 #
 # **API**
+# - `GET  /health`        health check (returns 200 when runtime is ready)
 # - `POST /jobs`          submit a JobContract (validated + stored)
 # - `GET  /jobs/{id}`     get job status + contract
 # - `POST /jobs/{id}/run` request execution (no agent execution yet; transitions to waiting)
 # - `POST /jobs/{id}/stop` stop execution (running -> waiting)
+# - `POST /artifacts`     submit an Artifact (validated + stored; job must be non-terminal)
+# - `GET  /artifacts/{id}` get artifact by id
 # - `POST /evaluations`   submit an Evaluation (validated + stored; may transition job state)

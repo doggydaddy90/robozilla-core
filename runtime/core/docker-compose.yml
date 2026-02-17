@@ -11,3 +11,6 @@ services:
     volumes:
       - /data:/data
       - /logs:/logs
+      # Mount repo root at /repo so registry loads orgs/agents/skills from repo (canonical).
+      # Path is relative to compose file: ../../ = repo root when compose is at runtime/core/.
+      - ../../:/repo:ro
