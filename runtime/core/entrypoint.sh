@@ -22,6 +22,17 @@ if [ "${KILL_SWITCH}" = "1" ]; then
   echo "KILL_SWITCH=1; runtime will still start but execution remains contract-deferred (build mode)" >&2
 fi
 
+# Prefer /repo when mounted; fall back to bundle for standalone image
+if [ -d /repo/orgs ]; then
+  ORGS_DIR=/repo/orgs
+  AGENTS_DIR=/repo/agents/definitions
+  SKILLS_DIR=/repo/skills/contracts
+else
+  ORGS_DIR=/app/bundle/orgs
+  AGENTS_DIR=/app/bundle/agents/definitions
+  SKILLS_DIR=/app/bundle/skills/contracts
+fi
+
 cat > /tmp/robozilla-runtime.yaml <<EOF
 runtime:
   role: dev
@@ -34,9 +45,9 @@ service:
 
 registry:
   schemas_dir: /app/bundle/schemas
-  orgs_dir: /app/bundle/orgs
-  agent_definitions_dir: /app/bundle/agents/definitions
-  skill_contracts_dir: /app/bundle/skills/contracts
+  orgs_dir: ${ORGS_DIR}
+  agent_definitions_dir: ${AGENTS_DIR}
+  skill_contracts_dir: ${SKILLS_DIR}
 
 storage:
   driver: ${STORAGE_BACKEND}
