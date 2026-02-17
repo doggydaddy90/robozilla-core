@@ -22,14 +22,21 @@ if [ "${KILL_SWITCH}" = "1" ]; then
   echo "KILL_SWITCH=1; runtime will still start but execution remains contract-deferred (build mode)" >&2
 fi
 
-# Prefer /repo when mounted; fall back to bundle for standalone image
+# Prefer /repo when mounted; fall back to bundle for missing paths.
+# Each path is checked independently so partial repo (e.g. orgs but no agents) still works.
 if [ -d /repo/orgs ]; then
   ORGS_DIR=/repo/orgs
-  AGENTS_DIR=/repo/agents/definitions
-  SKILLS_DIR=/repo/skills/contracts
 else
   ORGS_DIR=/app/bundle/orgs
+fi
+if [ -d /repo/agents/definitions ]; then
+  AGENTS_DIR=/repo/agents/definitions
+else
   AGENTS_DIR=/app/bundle/agents/definitions
+fi
+if [ -d /repo/skills/contracts ]; then
+  SKILLS_DIR=/repo/skills/contracts
+else
   SKILLS_DIR=/app/bundle/skills/contracts
 fi
 
