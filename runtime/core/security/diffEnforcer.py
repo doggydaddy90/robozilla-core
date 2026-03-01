@@ -83,12 +83,23 @@ def _contains_binary_marker(diff_text: str) -> bool:
 def _validate_target_header(target_file: Path, old_path: str, new_path: str) -> None:
     if new_path == "/dev/null":
         raise PolicyViolationError("Patch deletes are not allowed; use safeDelete()")
+    if not new_path:
+        raise PolicyViolationError("Patch must specify target path")
 
-    expected = target_file.name
-    header_target = Path(new_path).name if new_path else ""
-    if header_target and header_target != expected:
+    header_path = Path(new_path)
+    patch_parts = [part for part in header_path.parts if part not in ("", ".")]
+    if ".." in patch_parts:
+        raise PolicyViolationError(f"Path traversal is not allowed in patch target: {new_path}")
+
+    header_target = header_path.name
+    if header_target != target_file.name:
         raise PolicyViolationError(
             f"Diff target mismatch: patch targets '{new_path}', requested target is '{target_file.name}'"
+        )
+    target_parts = list(target_file.parts)
+    if len(patch_parts) > len(target_parts) or target_parts[-len(patch_parts):] != patch_parts:
+        raise PolicyViolationError(
+            f"Diff target mismatch: patch targets '{new_path}', requested target is '{target_file}'"
         )
     if old_path not in ("/dev/null", new_path):
         # Multi-target or rename patches are intentionally denied.
@@ -241,4 +252,3 @@ def applyPatch(
 
     written = _atomic_write_text(targetFile, updated)
     return PatchApplyResult(target_file=targetFile, changed=True, dry_run=False, bytes_written=written, content_sha256=digest)
-
