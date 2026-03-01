@@ -350,6 +350,8 @@ $defs:
             $ref: '#/$defs/network_allowlist'
           denylist:
             $ref: '#/$defs/network_denylist'
+      confirmations:
+        $ref: '#/$defs/runtime_confirmations'
     allOf:
       - if:
           properties:
@@ -430,6 +432,24 @@ $defs:
           minLength: 1
           maxLength: 64
           pattern: '^[0-9A-Fa-f:.]+\\/[0-9]{1,3}$'
+
+  runtime_confirmations:
+    type: object
+    additionalProperties: false
+    description: Explicit runtime confirmations for guarded side effects.
+    properties:
+      allow_diff_apply:
+        type: boolean
+        default: false
+      allow_delete:
+        type: boolean
+        default: false
+      allow_recursive_delete:
+        type: boolean
+        default: false
+      allow_shell_via_mcp:
+        type: boolean
+        default: false
 
   # --------
   # Limits and stop conditions

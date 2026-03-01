@@ -17,12 +17,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from audit.auditLog import AuditLog
 from config.settings import LimitsConfig
 from errors import ConflictError, NotFoundError, PolicyViolationError
 from executor.policy import enforce_job_contract_limits, enforce_job_contract_submission_shape, enforce_job_within_org_policy
 from executor.state_machine import TransitionRequest, apply_transition
 from registry.registry import Registry
 from registry.schema_validator import SchemaValidator
+from security.capabilityEnforcer import CapabilityEnforcer, CapabilityRequest
 from storage.interfaces import JobStore
 from utils import deep_get, parse_rfc3339, utcnow
 
@@ -41,12 +43,21 @@ class JobEngine:
         job_store: JobStore,
         limits: LimitsConfig,
         execution_deferred: bool = True,
+        audit_log: AuditLog | None = None,
+        capability_enforcer: CapabilityEnforcer | None = None,
     ):
         self._schemas = schema_validator
         self._registry = registry
         self._jobs = job_store
         self._limits = limits
         self._execution_deferred = execution_deferred
+        self._audit = audit_log
+        self._capabilities = capability_enforcer
+
+    def _record_audit(self, *, actor: str, action: str, target: str, details: dict[str, Any] | None = None) -> None:
+        if self._audit is None:
+            return
+        self._audit.append(actor=actor, action=action, target=target, details=details or {})
 
     def submit_job(self, job: dict[str, Any]) -> EngineResult:
         now = utcnow()
@@ -65,6 +76,12 @@ class JobEngine:
         self._jobs.create(job)
         job_id = str(deep_get(job, ["metadata", "job_id"]))
         self._jobs.record_event(org_id=org_id, job_id=job_id, event_type="job_submitted", details={"state": "created"})
+        self._record_audit(
+            actor="runtime.core.job_engine",
+            action="job_contract.submitted",
+            target=job_id,
+            details={"org_id": org_id, "state": "created"},
+        )
         return EngineResult(job=job)
 
     def get_job(self, job_id: str) -> dict[str, Any]:
@@ -73,6 +90,12 @@ class JobEngine:
     def run_job(self, job_id: str) -> EngineResult:
         job = self._jobs.get(job_id)
         now = utcnow()
+        self._record_audit(
+            actor="runtime.core.job_engine",
+            action="job_contract.execution_requested",
+            target=job_id,
+            details={},
+        )
 
         org_id = str(deep_get(job, ["metadata", "org_id"]))
         expires_at = parse_rfc3339(str(deep_get(job, ["spec", "timestamps", "expires_at"])))
@@ -82,6 +105,12 @@ class JobEngine:
             self._schemas.validate("JobContract", expired)
             self._jobs.update(expired)
             self._jobs.record_event(org_id=org_id, job_id=job_id, event_type="job_expired", details={"reason": "expires_at_reached"})
+            self._record_audit(
+                actor="runtime.core.job_engine",
+                action="job_contract.expired",
+                target=job_id,
+                details={"reason": "expires_at_reached"},
+            )
             return EngineResult(job=expired)
 
         state = str(deep_get(job, ["spec", "status", "state"]))
@@ -115,6 +144,12 @@ class JobEngine:
         self._schemas.validate("JobContract", running)
         self._jobs.update(running)
         self._jobs.record_event(org_id=org_id, job_id=job_id, event_type="job_started", details={"previous_state": state})
+        self._record_audit(
+            actor="runtime.core.job_engine",
+            action="job_contract.started",
+            target=job_id,
+            details={"previous_state": state},
+        )
 
         if self._execution_deferred:
             waiting = apply_transition(running, TransitionRequest(new_state="waiting", now=utcnow()))
@@ -125,6 +160,12 @@ class JobEngine:
                 job_id=job_id,
                 event_type="execution_deferred",
                 details={"reason": "agent_execution_not_implemented", "build_mode": True},
+            )
+            self._record_audit(
+                actor="runtime.core.job_engine",
+                action="job_contract.execution_deferred",
+                target=job_id,
+                details={"reason": "agent_execution_not_implemented"},
             )
             return EngineResult(job=waiting)
 
@@ -148,5 +189,39 @@ class JobEngine:
         self._schemas.validate("JobContract", waiting)
         self._jobs.update(waiting)
         self._jobs.record_event(org_id=org_id, job_id=job_id, event_type="job_stopped", details={"to_state": "waiting"})
+        self._record_audit(
+            actor="runtime.core.job_engine",
+            action="job_contract.stopped",
+            target=job_id,
+            details={"previous_state": state, "to_state": "waiting"},
+        )
         return EngineResult(job=waiting)
+
+    def enforce_skill_execution(
+        self,
+        *,
+        job_id: str,
+        actor: str,
+        skill_id: str,
+        skill_contract: dict[str, Any],
+        requested_channel: str,
+        requested_side_effects: bool,
+        requested_mcp_id: str | None = None,
+        requested_mcp_scopes: list[str] | None = None,
+    ) -> None:
+        """Capability chokepoint for every skill execution request."""
+        if self._capabilities is None:
+            raise PolicyViolationError("Capability enforcer is not configured")
+        job = self._jobs.get(job_id)
+        req = CapabilityRequest(
+            actor=actor,
+            job_contract=job,
+            skill_contract=skill_contract,
+            skill_id=skill_id,
+            requested_side_effects=requested_side_effects,
+            requested_channel=requested_channel,
+            requested_mcp_id=requested_mcp_id,
+            requested_mcp_scopes=requested_mcp_scopes or [],
+        )
+        self._capabilities.enforceCapability(req)
 

@@ -1,0 +1,21 @@
+name: Runtime Security Guards
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  forbidden-ops-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Enforce forbidden destructive/shell APIs
+        run: python tools/ci/check_forbidden_ops.py
+

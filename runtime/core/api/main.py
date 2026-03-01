@@ -13,6 +13,7 @@ import yaml
 from fastapi import Body, FastAPI
 from fastapi.responses import JSONResponse
 
+from audit.auditLog import AuditLog, verifyAuditChain
 from config.settings import default_config_paths, load_limits_config, load_runtime_config
 from errors import (
     ConflictError,
@@ -25,6 +26,8 @@ from evaluator.service import EvaluationService
 from executor.engine import JobEngine
 from registry.registry import Registry
 from registry.schema_validator import SchemaValidator
+from security.capabilityEnforcer import CapabilityEnforcer
+from security.pathGuard import derive_project_root, safeRead, set_audit_logger, set_project_root
 from storage.interfaces import ArtifactStore
 from storage.sqlite import SQLiteStores
 from utils import deep_get
@@ -51,10 +54,12 @@ class AppComponents:
     schema_validator: SchemaValidator
     registry: Registry
     artifact_store: ArtifactStore
+    audit_log: AuditLog
+    capability_enforcer: CapabilityEnforcer
 
 
 def _load_logging_config(path: Path) -> dict[str, Any]:
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    raw = yaml.safe_load(safeRead(path))
     if not isinstance(raw, dict):
         raise PolicyViolationError(f"Invalid logging config YAML root object: {path}")
     return raw
@@ -96,8 +101,25 @@ def _build_components() -> AppComponents:
     logging_cfg_path = _env_path("ROBOZILLA_LOGGING_CONFIG") or default_logging
     limits_cfg_path = _env_path("ROBOZILLA_LIMITS_CONFIG") or default_limits
 
+    bootstrap_root = derive_project_root([runtime_cfg_path, logging_cfg_path, limits_cfg_path, Path.cwd()])
+    set_project_root(bootstrap_root, freeze=False)
+
     runtime = load_runtime_config(runtime_cfg_path)
     limits = load_limits_config(limits_cfg_path)
+
+    enforcement_root = derive_project_root(
+        [
+            runtime_cfg_path,
+            logging_cfg_path,
+            limits_cfg_path,
+            runtime.registry.schemas_dir,
+            runtime.registry.orgs_dir,
+            runtime.registry.agent_definitions_dir,
+            runtime.registry.skill_contracts_dir,
+            runtime.storage.sqlite_path,
+        ]
+    )
+    set_project_root(enforcement_root, freeze=False)
 
     _apply_logging_config(logging_cfg_path)
 
@@ -110,8 +132,19 @@ def _build_components() -> AppComponents:
     )
 
     stores = SQLiteStores(runtime.storage.sqlite_path)
+    audit_log = AuditLog(runtime.storage.sqlite_path.with_name("runtime_audit.sqlite"))
+    set_audit_logger(audit_log)
+    capability_enforcer = CapabilityEnforcer(audit_log=audit_log)
 
-    engine = JobEngine(schema_validator=schema_validator, registry=registry, job_store=stores.jobs, limits=limits, execution_deferred=True)
+    engine = JobEngine(
+        schema_validator=schema_validator,
+        registry=registry,
+        job_store=stores.jobs,
+        limits=limits,
+        execution_deferred=True,
+        audit_log=audit_log,
+        capability_enforcer=capability_enforcer,
+    )
     evaluator = EvaluationService(schema_validator=schema_validator, registry=registry, evaluation_store=stores.evaluations, job_store=stores.jobs)
 
     return AppComponents(
@@ -120,6 +153,8 @@ def _build_components() -> AppComponents:
         schema_validator=schema_validator,
         registry=registry,
         artifact_store=stores.artifacts,
+        audit_log=audit_log,
+        capability_enforcer=capability_enforcer,
     )
 
 
@@ -172,6 +207,12 @@ def _components() -> AppComponents:
 def health() -> dict[str, Any]:
     """Health check for runtime availability. Returns 200 when registry and stores are loaded."""
     return {"status": "ok", "mode": "build"}
+
+
+@app.get("/audit/verify")
+def verify_audit_chain() -> dict[str, Any]:
+    res = verifyAuditChain(_components().audit_log)
+    return {"valid": res.valid, "entries": res.entries, "errors": res.errors}
 
 
 @app.post("/jobs")

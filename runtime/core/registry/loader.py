@@ -13,6 +13,7 @@ from typing import Any, Iterable
 import yaml
 
 from errors import PolicyViolationError
+from security.pathGuard import safeRead
 
 REPO_SKILL_CONTRACTS_DIR = Path("/repo/skills/contracts")
 
@@ -30,7 +31,7 @@ class LoadedDocument:
 
 def load_yaml_document(path: Path) -> LoadedDocument:
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = yaml.safe_load(safeRead(path))
     except Exception as e:  # pragma: no cover - defensive
         raise PolicyViolationError(f"Failed to parse YAML: {path}: {e}") from e
     if not isinstance(data, dict):

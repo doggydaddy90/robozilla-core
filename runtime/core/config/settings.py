@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 
 from errors import PolicyViolationError
+from security.pathGuard import safeRead
 
 
 @dataclass(frozen=True)
@@ -77,7 +78,7 @@ class LimitsConfig:
 def _load_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise PolicyViolationError(f"Missing required config file: {path}")
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data = yaml.safe_load(safeRead(path))
     if not isinstance(data, dict):
         raise PolicyViolationError(f"Invalid YAML root object in config file: {path}")
     return data

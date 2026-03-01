@@ -22,6 +22,7 @@ from typing import Any, Iterable
 import yaml
 
 from errors import PolicyViolationError, SchemaValidationError, SchemaViolation
+from security.pathGuard import safeRead
 
 
 _KIND_TO_SCHEMA_FILENAME: dict[str, str] = {
@@ -37,7 +38,7 @@ _KIND_TO_SCHEMA_FILENAME: dict[str, str] = {
 
 def _load_yaml_object(path: Path) -> dict[str, Any]:
     try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        raw = yaml.safe_load(safeRead(path))
     except Exception as e:  # pragma: no cover - defensive
         raise PolicyViolationError(f"Failed to parse YAML: {path}: {e}") from e
     if not isinstance(raw, dict):
