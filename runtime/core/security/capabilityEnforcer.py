@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -19,6 +20,7 @@ class CapabilityRequest:
     requested_channel: str  # mcp|none|shell|fs
     requested_mcp_id: str | None = None
     requested_mcp_scopes: list[str] = field(default_factory=list)
+    requested_scope_tags: list[str] = field(default_factory=list)
 
 
 class CapabilityEnforcer:
@@ -48,6 +50,7 @@ class CapabilityEnforcer:
 
         # Default deny: all checks must pass before we permit execution.
         self._validate_job_active(job, request)
+        self._validate_intent_envelope(job, request)
         self._validate_skill_allowed(job, request)
         self._validate_channel_and_side_effects(job, request)
         self._validate_mcp_allowed(job, request)
@@ -112,6 +115,47 @@ class CapabilityEnforcer:
             return
         self._deny(request, f"Skill is not allowed by JobContract permissions snapshot: {request.skill_id}")
 
+    def _validate_intent_envelope(self, job: dict[str, Any], request: CapabilityRequest) -> None:
+        envelope = deep_get(job, ["spec", "intent_envelope"])
+        if not isinstance(envelope, dict):
+            self._deny(request, "JobContract.spec.intent_envelope is required")
+
+        original_prompt = envelope.get("original_prompt")
+        intent_hash = envelope.get("intent_hash")
+        allowed_scopes_raw = envelope.get("allowed_scopes")
+
+        if not isinstance(original_prompt, str) or not original_prompt.strip():
+            self._deny(request, "IntentEnvelope.original_prompt must be a non-empty string")
+        if not isinstance(intent_hash, str) or len(intent_hash) != 64:
+            self._deny(request, "IntentEnvelope.intent_hash must be a 64-char sha256 hex string")
+        if not isinstance(allowed_scopes_raw, list):
+            self._deny(request, "IntentEnvelope.allowed_scopes must be a list")
+
+        computed = hashlib.sha256(original_prompt.encode("utf-8")).hexdigest()
+        if computed != intent_hash:
+            self._deny(request, "IntentEnvelope.intent_hash does not match original_prompt")
+
+        is_tool_call = request.requested_mcp_id is not None or request.requested_channel.strip().lower() in (
+            "mcp",
+            "shell",
+            "subprocess",
+            "fs",
+            "filesystem",
+        )
+        if not is_tool_call:
+            return
+
+        allowed_scopes = {str(x).strip() for x in allowed_scopes_raw if str(x).strip()}
+        if not allowed_scopes:
+            self._deny(request, "IntentEnvelope.allowed_scopes cannot be empty for tool calls")
+
+        requested_scopes = request.requested_scope_tags or request.requested_mcp_scopes
+        requested = {str(x).strip() for x in requested_scopes if str(x).strip()}
+        if not requested:
+            self._deny(request, "Tool calls must declare requested scope tags")
+        if not requested.issubset(allowed_scopes):
+            self._deny(request, f"Tool call scopes exceed IntentEnvelope.allowed_scopes: {sorted(requested)}")
+
     def _validate_channel_and_side_effects(self, job: dict[str, Any], request: CapabilityRequest) -> None:
         channel = request.requested_channel.strip().lower()
         if channel in ("fs", "filesystem"):
@@ -150,4 +194,3 @@ class CapabilityEnforcer:
         requested_scopes = {str(x) for x in request.requested_mcp_scopes}
         if allowed_scopes and not requested_scopes.issubset(allowed_scopes):
             self._deny(request, f"MCP scopes exceed JobContract allowlist: {request.requested_mcp_id}")
-

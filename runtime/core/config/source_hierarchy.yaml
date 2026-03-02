@@ -1,0 +1,13 @@
+version: 1
+weights:
+  regulatory: 1.0
+  court_edgar: 0.95
+  official_company: 0.9
+  academic: 0.85
+  github_official: 0.85
+  news: 0.7
+  blog: 0.6
+  zlib: 0.6
+  reddit: 0.3
+  youtube_official: 0.8
+  youtube_third_party: 0.6

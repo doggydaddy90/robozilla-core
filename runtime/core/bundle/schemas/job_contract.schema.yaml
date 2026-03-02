@@ -127,6 +127,12 @@ $defs:
     format: date-time
     maxLength: 64
 
+  sha256_hex:
+    type: string
+    pattern: '^[0-9a-f]{64}$'
+    minLength: 64
+    maxLength: 64
+
   non_negative_int:
     type: integer
     minimum: 0
@@ -193,6 +199,7 @@ $defs:
     type: object
     additionalProperties: false
     required:
+      - intent_envelope
       - requested_by
       - goal
       - required_artifacts
@@ -204,6 +211,8 @@ $defs:
       - status
       - invariants
     properties:
+      intent_envelope:
+        $ref: '#/$defs/intent_envelope'
       requested_by:
         $ref: '#/$defs/actor_ref'
       goal:
@@ -266,6 +275,44 @@ $defs:
       notes:
         type: string
         maxLength: 1000
+
+  # --------
+  # Intent envelope (immutable request boundary)
+  # --------
+  intent_envelope:
+    type: object
+    additionalProperties: false
+    required:
+      - original_prompt
+      - intent_hash
+      - allowed_domains
+      - allowed_scopes
+      - created_at
+    description: >-
+      Immutable user intent captured at submission time. Runtime enforcement
+      validates hash, scope, and domain alignment against this envelope.
+    properties:
+      original_prompt:
+        type: string
+        minLength: 1
+        maxLength: 20000
+      intent_hash:
+        $ref: '#/$defs/sha256_hex'
+        description: SHA-256 hex digest of original_prompt.
+      allowed_domains:
+        type: array
+        minItems: 1
+        items:
+          type: string
+          minLength: 1
+          maxLength: 253
+      allowed_scopes:
+        type: array
+        minItems: 1
+        items:
+          $ref: '#/$defs/id_token'
+      created_at:
+        $ref: '#/$defs/date_time'
 
   # --------
   # Required artifacts

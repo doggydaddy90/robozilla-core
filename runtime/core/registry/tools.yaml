@@ -1,0 +1,17 @@
+- id: search_engine_tool
+  scope: external_research
+  risk_level: low
+  side_effects: false
+  requires_confirmation: false
+  execution_mode: sync
+  rate_limit: daily_free_allowance
+
+- id: ref_tools_mcp
+  scope_tags:
+    - mutation
+    - code_analysis
+  risk_level: high
+  side_effects: true
+  requires_confirmation: true
+  execution_mode: sync
+  rate_limit: explicit_confirmation_required

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 import subprocess
 import sys
@@ -25,11 +26,19 @@ def _job_with_confirmations(**flags: bool) -> dict[str, object]:
 
 
 def _allowed_job_contract(*, invariant: bool = True) -> dict[str, object]:
+    prompt = "stress capability prompt"
     return {
         "metadata": {"job_id": "stress-job"},
         "spec": {
             "status": {"state": "running"},
             "invariants": {"no_side_effects_without_active_job_contract": invariant},
+            "intent_envelope": {
+                "original_prompt": prompt,
+                "intent_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+                "allowed_domains": ["example.org"],
+                "allowed_scopes": ["read", "write", "execute", "planning", "research", "runtime", "ingestion"],
+                "created_at": "2026-03-02T00:00:00Z",
+            },
             "permissions_snapshot": {
                 "skills": {
                     "allowed_skill_ids": ["skill.allowed"],

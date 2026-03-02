@@ -1,0 +1,14 @@
+version: 1
+weights:
+  regulatory_document: 1.0
+  court_filing: 0.95
+  sec_filing: 0.95
+  official_company_statement: 0.9
+  peer_reviewed_paper: 0.85
+  official_repository: 0.85
+  news_report: 0.7
+  blog_post: 0.6
+  zlib_record: 0.6
+  reddit_post: 0.3
+  youtube_official_transcript: 0.8
+  youtube_third_party_transcript: 0.6
