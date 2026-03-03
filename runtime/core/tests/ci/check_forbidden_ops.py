@@ -4,10 +4,18 @@
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+
+def _find_repo_root(start: Path) -> Path:
+    cur = start.resolve()
+    for candidate in [cur, *cur.parents]:
+        if (candidate / ".git").exists():
+            return candidate
+    raise RuntimeError("Could not locate repository root")
+
+
+REPO_ROOT = _find_repo_root(Path(__file__).resolve().parent)
 APPROVED_MCP_DIR = (REPO_ROOT / "runtime" / "core" / "mcp").resolve()
 
 SCAN_EXTENSIONS = {

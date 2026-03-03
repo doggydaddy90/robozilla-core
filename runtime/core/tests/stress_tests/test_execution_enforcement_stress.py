@@ -468,7 +468,7 @@ class AuditLogTamperStressTests(_BaseStressTest):
 
 class CifForbiddenOpsScannerStressTests(unittest.TestCase):
     def test_scanner_flags_temp_file_and_file_is_cleaned_up(self) -> None:
-        scanner = REPO_ROOT / "tools" / "ci" / "check_forbidden_ops.py"
+        scanner = REPO_ROOT / "runtime" / "core" / "tests" / "ci" / "check_forbidden_ops.py"
         self.assertTrue(scanner.exists())
 
         temp_file = REPO_ROOT / "runtime" / "core" / "tests" / "stress_tests" / "_tmp_forbidden_scan.py"
