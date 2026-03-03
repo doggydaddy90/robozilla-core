@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
-from execution.module_executor import BaseModuleExecutor, SubprocessModuleExecutor
+from execution.module_executor import BaseModuleExecutor, InProcessModuleExecutor
 from errors import PolicyViolationError
 from search.zero_result_registry import (
     compute_query_signature,
@@ -161,7 +161,7 @@ class ResearchRouter:
         if module_executor is None:
             if not callable(tool_executor):
                 raise PolicyViolationError("tool_executor must be callable")
-            module_executor = SubprocessModuleExecutor(module_runner=tool_executor)
+            module_executor = InProcessModuleExecutor(module_runner=tool_executor)
         self._capabilities = capability_enforcer
         self._module_executor = module_executor
         self._actor = actor

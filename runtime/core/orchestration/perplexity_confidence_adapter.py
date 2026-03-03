@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from execution.module_executor import BaseModuleExecutor, SubprocessModuleExecutor
+from execution.module_executor import BaseModuleExecutor, InProcessModuleExecutor
 from errors import PolicyViolationError
 from security.capabilityEnforcer import CapabilityEnforcer, CapabilityRequest
 
@@ -31,7 +31,7 @@ class PerplexityConfidenceAdapter:
         if module_executor is None:
             if not callable(tool_executor):
                 raise PolicyViolationError("tool_executor must be callable")
-            module_executor = SubprocessModuleExecutor(module_runner=tool_executor)
+            module_executor = InProcessModuleExecutor(module_runner=tool_executor)
         self._capabilities = capability_enforcer
         self._module_executor = module_executor
         self._actor = actor

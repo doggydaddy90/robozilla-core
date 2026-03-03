@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from audit.auditLog import AuditLog
-from execution.module_executor import BaseModuleExecutor, SubprocessModuleExecutor
+from execution.module_executor import BaseModuleExecutor, InProcessModuleExecutor
 from errors import PolicyViolationError
 from security.capabilityEnforcer import CapabilityEnforcer, CapabilityRequest
 
@@ -40,7 +40,7 @@ class AutonomousLoopController:
         if module_executor is None:
             if not callable(tool_executor):
                 raise PolicyViolationError("tool_executor must be callable")
-            module_executor = SubprocessModuleExecutor(module_runner=tool_executor)
+            module_executor = InProcessModuleExecutor(module_runner=tool_executor)
         self._capabilities = capability_enforcer
         self._audit = audit_log
         self._module_executor = module_executor
