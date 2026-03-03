@@ -3,7 +3,7 @@ set -eu
 
 : "${MODE:=build}"
 : "${KILL_SWITCH:=1}"
-: "${API_BIND:=127.0.0.1}"
+: "${API_BIND:=localhost}"
 : "${API_PORT:=8787}"
 : "${STORAGE_BACKEND:=sqlite}"
 : "${PROJECT_ROOT:=$(pwd)}"

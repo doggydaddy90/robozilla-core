@@ -3,12 +3,12 @@
 # All relative paths are resolved relative to THIS FILE's directory.
 #
 runtime:
-  role: dev  # dev|compute|vps
+  role: dev  # dev|compute|edge
   strict_validation: true
   fail_closed: true
 
 service:
-  host: 0.0.0.0
+  host: localhost
   port: 8080
 
 registry:

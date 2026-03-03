@@ -6,11 +6,11 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    # No published ports. With host networking, binding to 127.0.0.1 stays local-only.
+    # No published ports. With host networking, binding to localhost stays local-only.
     network_mode: host
     volumes:
-      - /data:/data
-      - /logs:/logs
+      - ${RUNTIME_DATA_MOUNT:-./state-data}:/data
+      - ${RUNTIME_LOG_MOUNT:-./runtime-logs}:/logs
       # Mount repo root at /repo so registry loads orgs/agents/skills from repo (canonical).
       # Path is relative to compose file: ../../ = repo root when compose is at runtime/core/.
-      - ../../:/repo:ro
+      - ${REPO_ROOT_MOUNT:-../../}:/repo:ro

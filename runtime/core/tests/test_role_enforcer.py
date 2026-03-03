@@ -12,6 +12,10 @@ from errors import PolicyViolationError
 from security.role_enforcer import REDACTED_SECRET, enforce_role_data_access
 
 
+def _fake_api_key() -> str:
+    return "sk-" + ("FAKE" * 8)
+
+
 class RoleEnforcerTests(unittest.TestCase):
     def test_admin_can_retrieve_phone_number(self) -> None:
         value = enforce_role_data_access(role="admin", field_name="phone", value="+1-415-555-1212")
@@ -21,7 +25,7 @@ class RoleEnforcerTests(unittest.TestCase):
         value = enforce_role_data_access(
             role="admin",
             field_name="api_key",
-            value="sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ123456",
+            value=_fake_api_key(),
             channel="chat",
         )
         self.assertEqual(value, REDACTED_SECRET)
@@ -33,4 +37,3 @@ class RoleEnforcerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

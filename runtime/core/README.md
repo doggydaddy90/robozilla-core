@@ -60,7 +60,7 @@
 # **Run locally (Python)**
 # 1. `cd runtime/core`
 # 2. `python -m pip install -r requirements.txt`
-# 3. `python -m uvicorn api.main:app --host 127.0.0.1 --port 8787`
+# 3. `python -m uvicorn api.main:app --host ${API_BIND:-localhost} --port ${API_PORT:-8787}`
 #
 # **Run locally (Docker Compose)**
 # 1. `cd runtime/core`
@@ -69,7 +69,7 @@
 #
 # Docker Compose mounts repo root at `/repo` so registry loads from repo (canonical).
 # Path `../../` is relative to compose file; ensure repo root contains orgs/, agents/, skills/.
-# Docker Compose uses host networking and binds to `API_BIND` only (default `127.0.0.1`).
+# Docker Compose uses host networking and binds to `API_BIND` only (default `localhost`).
 # There are no published container ports in `docker-compose.yml`.
 #
 # **API**

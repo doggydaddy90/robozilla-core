@@ -218,7 +218,7 @@ Run API:
 
 ```bash
 cd runtime/core
-python -m uvicorn api.main:app --host 127.0.0.1 --port 8787
+python -m uvicorn api.main:app --host ${API_BIND:-localhost} --port ${API_PORT:-8787}
 ```
 
 Container run:
@@ -273,4 +273,3 @@ When adding new capability:
 ---
 
 For runtime-specific details, see `runtime/core/README.md`.
-

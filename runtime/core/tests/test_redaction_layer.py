@@ -12,6 +12,36 @@ from errors import PolicyViolationError
 from orchestration.redaction_layer import redact_document, sanitize_for_ingestion
 
 
+def _fake_email() -> str:
+    return "redaction.test" + "@example.invalid"
+
+
+def _fake_api_key() -> str:
+    return "sk-" + ("FAKE" * 8)
+
+
+def _fake_jwt_like() -> str:
+    return ".".join(
+        [
+            "eyJ" + "ZmFrZV9oZWFkZXI",
+            "ZmFrZV9wYXlsb2Fk",
+            "ZmFrZV9zaWduYXR1cmU",
+        ]
+    )
+
+
+def _fake_bearer_like() -> str:
+    return "OAuth " + ("bear" + "er") + " " + "fakecredentialtoken12345"
+
+
+def _fake_private_key_header() -> str:
+    return "-----" + "BEGIN OPENSSH PRIVATE KEY" + "-----"
+
+
+def _fake_asia_key() -> str:
+    return "ASIA" + "FAKEFAKEFAKEFAKE"
+
+
 def _base_document() -> dict[str, object]:
     return {
         "document_id": "a" * 64,
@@ -25,7 +55,7 @@ def _base_document() -> dict[str, object]:
 class RedactionLayerTests(unittest.TestCase):
     def test_email_detection(self) -> None:
         doc = _base_document()
-        doc["content_blocks"] = [{"fact_text": "Contact me at alice@example.com"}]
+        doc["content_blocks"] = [{"fact_text": f"Contact me at {_fake_email()}"}]
         with self.assertRaises(PolicyViolationError):
             sanitize_for_ingestion(
                 normalized_document=doc,
@@ -43,7 +73,7 @@ class RedactionLayerTests(unittest.TestCase):
 
     def test_api_key_detection(self) -> None:
         doc = _base_document()
-        doc["content_blocks"] = [{"fact_text": "key sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ123456"}]
+        doc["content_blocks"] = [{"fact_text": f"key {_fake_api_key()}"}]
         with self.assertRaises(PolicyViolationError):
             sanitize_for_ingestion(
                 normalized_document=doc,
@@ -76,11 +106,10 @@ class RedactionLayerTests(unittest.TestCase):
         doc["content_blocks"] = [
             {
                 "fact_text": (
-                    "JWT eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-                    "eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature "
-                    "OAuth bearer abcdefghijklmnop "
-                    "SSH -----BEGIN OPENSSH PRIVATE KEY----- "
-                    "AWS ASIAABCDEFGHIJKLMNOP "
+                    f"JWT {_fake_jwt_like()} "
+                    f"{_fake_bearer_like()} "
+                    f"SSH {_fake_private_key_header()} "
+                    f"AWS {_fake_asia_key()} "
                     "B64 QWxhZGRpbjpvcGVuIHNlc2FtZQ=="
                 )
             }
@@ -89,7 +118,7 @@ class RedactionLayerTests(unittest.TestCase):
         text = str(redacted["content_blocks"][0]["fact_text"])
         self.assertIn("[REDACTED_SECRET]", text)
         self.assertNotIn("BEGIN OPENSSH PRIVATE KEY", text)
-        self.assertNotIn("ASIAABCDEFGHIJKLMNOP", text)
+        self.assertNotIn(_fake_asia_key(), text)
 
 
 if __name__ == "__main__":

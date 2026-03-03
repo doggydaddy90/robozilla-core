@@ -50,7 +50,7 @@ class SchedulerConfig:
 
 @dataclass(frozen=True)
 class RuntimeFlags:
-    role: str  # dev|compute|vps
+    role: str  # dev|compute|edge
     strict_validation: bool
     fail_closed: bool
 
@@ -108,7 +108,7 @@ def load_runtime_config(runtime_config_path: Path) -> RuntimeConfig:
     )
 
     service = ServiceConfig(
-        host=str(service_raw.get("host", "0.0.0.0")),
+        host=str(service_raw.get("host", "localhost")),
         port=int(service_raw.get("port", 8080)),
     )
 
