@@ -16,6 +16,13 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from errors import PolicyViolationError
+from search.zero_result_registry import (
+    compute_query_signature,
+    decay_old_entries,
+    record_zero_result,
+    reset_entry,
+    should_block_premium,
+)
 from security.capabilityEnforcer import CapabilityEnforcer, CapabilityRequest
 from security.endpoint_allowlist_enforcer import enforce_endpoint_allowlist
 
@@ -146,6 +153,8 @@ class ResearchRouter:
         skill_id: str = "research_router",
         thresholds: ResearchThresholds = ResearchThresholds(),
         score_oracle: ScoreOracle | None = None,
+        zero_result_registry_path: Path | str | None = None,
+        audit_log: Any | None = None,
     ):
         if not callable(tool_executor):
             raise PolicyViolationError("tool_executor must be callable")
@@ -155,6 +164,8 @@ class ResearchRouter:
         self._skill_id = skill_id
         self._thresholds = thresholds
         self._score_oracle = score_oracle or self._default_score_oracle
+        self._zero_result_registry_path = zero_result_registry_path
+        self._audit = audit_log if audit_log is not None else getattr(capability_enforcer, "_audit", None)
 
     def route(
         self,
@@ -224,8 +235,31 @@ class ResearchRouter:
         criteria_satisfied = atomic_pass and (effective_tier == "fast" or compiled_pass) and not contradiction_flag
 
         selected_tool = OPENAI_PLANNER_TOOL if criteria_satisfied else PERPLEXITY_RESEARCH_TOOL
+        premium_selected = selected_tool == PERPLEXITY_RESEARCH_TOOL
+        zero_memory_blocked = False
+        query_text = query.strip()
+        entropy_score = _clamp01(scores.get("anomaly", anomaly_score if anomaly_score is not None else 0.0))
+        if premium_selected:
+            decay_old_entries(db_path=self._zero_result_registry_db_path())
+            if should_block_premium(
+                engine=PERPLEXITY_RESEARCH_TOOL,
+                normalized_query=query_text,
+                entropy_score=entropy_score,
+                db_path=self._zero_result_registry_db_path(),
+            ):
+                zero_memory_blocked = True
+                selected_tool = OPENAI_PLANNER_TOOL
+                self._log_event(
+                    action="search.zero_memory_block",
+                    target=query_text,
+                    details={
+                        "engine": PERPLEXITY_RESEARCH_TOOL,
+                        "query_signature": compute_query_signature(query_text),
+                        "entropy_score": entropy_score,
+                    },
+                )
         extraction_payload = {
-            "query": query.strip(),
+            "query": query_text,
             "search_results": snippets,
             "scores": scores,
             "criteria_satisfied": criteria_satisfied,
@@ -234,6 +268,7 @@ class ResearchRouter:
             "atomic_confidence": atomic_confidence,
             "oracle": oracle,
             "force_escalation": force_escalation,
+            "zero_memory_blocked": zero_memory_blocked,
         }
         extraction = self._call_tool(
             tool_id=selected_tool,
@@ -242,13 +277,29 @@ class ResearchRouter:
             job_contract=job_contract,
             skill_contract=skill_contract,
         )
+        if premium_selected and not zero_memory_blocked:
+            signature = compute_query_signature(query_text)
+            if _has_zero_results(extraction):
+                record_zero_result(
+                    engine=PERPLEXITY_RESEARCH_TOOL,
+                    normalized_query=query_text,
+                    entropy_score=entropy_score,
+                    db_path=self._zero_result_registry_db_path(),
+                )
+            else:
+                reset_entry(
+                    engine=PERPLEXITY_RESEARCH_TOOL,
+                    query_signature=signature,
+                    db_path=self._zero_result_registry_db_path(),
+                )
 
         return {
-            "query": query.strip(),
+            "query": query_text,
             "tier": effective_tier,
             "selected_tool": selected_tool,
             "criteria_satisfied": criteria_satisfied,
             "force_escalation": force_escalation,
+            "zero_memory_blocked": zero_memory_blocked,
             "atomic_confidence": round(atomic_confidence, 4),
             "compiled_confidence": compiled_confidence,
             "compiled_threshold": compiled_threshold,
@@ -263,6 +314,23 @@ class ResearchRouter:
             "oracle": oracle,
             "candidate_document": extraction,
         }
+
+    def _zero_result_registry_db_path(self) -> Path | str:
+        return (
+            self._zero_result_registry_path
+            if self._zero_result_registry_path is not None
+            else Path("runtime/core/state/zero_result_registry.sqlite")
+        )
+
+    def _log_event(self, *, action: str, target: str, details: dict[str, Any]) -> None:
+        if self._audit is None:
+            return
+        self._audit.append(
+            actor=self._actor,
+            action=action,
+            target=target,
+            details={k: v for k, v in details.items() if "query" not in str(k).lower()},
+        )
 
     def _default_score_oracle(
         self,
@@ -365,6 +433,21 @@ def _extract_results(response: dict[str, Any], tool_id: str) -> list[dict[str, A
             }
         )
     return out
+
+
+def _has_zero_results(response: dict[str, Any]) -> bool:
+    if not isinstance(response, dict):
+        return True
+    results = response.get("results")
+    if isinstance(results, list):
+        return len(results) == 0
+    snippets = response.get("snippets")
+    if isinstance(snippets, list):
+        return len(snippets) == 0
+    citations = response.get("citations")
+    if isinstance(citations, list):
+        return len(citations) == 0
+    return False
 
 
 def _score_results(

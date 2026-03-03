@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import sys
 import unittest
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,7 @@ from orchestration.research_router import (
     compute_contextual_authority,
 )
 from security.capabilityEnforcer import CapabilityEnforcer
+from search.zero_result_registry import record_zero_result
 
 
 ALL_SURFACE_TOOLS = {
@@ -130,6 +132,7 @@ class ResearchRouterTests(unittest.TestCase):
         *,
         per_tool_results: dict[str, list[dict[str, Any]]],
         oracle: dict[str, Any] | None = None,
+        zero_result_registry_path: Path | None = None,
     ) -> tuple[ResearchRouter, _AuditSink, list[str]]:
         audit = _AuditSink()
         calls: list[str] = []
@@ -154,6 +157,7 @@ class ResearchRouterTests(unittest.TestCase):
             tool_executor=_executor,
             score_oracle=_score_oracle,
             skill_id="research_router",
+            zero_result_registry_path=zero_result_registry_path,
         )
         return router, audit, calls
 
@@ -296,6 +300,39 @@ class ResearchRouterTests(unittest.TestCase):
                 job_contract=_job_contract(allowed_domains=["reuters.com", "nih.gov"], prompt="markets outlook"),
                 skill_contract=_skill_contract(),
             )
+
+    def test_zero_memory_blocks_premium_escalation(self) -> None:
+        base = Path.cwd() / "runtime" / "tmp" / "research_router_zero_memory"
+        base.mkdir(parents=True, exist_ok=True)
+        db_path = Path("runtime/tmp/research_router_zero_memory") / f"{uuid.uuid4().hex}.sqlite"
+        query = "rare policy discontinuity signal"
+        for _ in range(3):
+            record_zero_result(PERPLEXITY_RESEARCH_TOOL, query, 0.1, db_path=db_path)
+
+        router, audit, calls = self._make_router(
+            per_tool_results={
+                RAG_LOOKUP_TOOL: _base_results("https://example.org/rag"),
+                BOOLEAN_SEARCH_TOOL: _base_results("https://www.reuters.com/world"),
+                SEARCH_ENGINE_TOOL: _base_results("https://www.nih.gov/news-events"),
+            },
+            oracle={
+                "confidence_score": 0.2,
+                "authority_score": 0.5,
+                "contradiction_flag": False,
+            },
+            zero_result_registry_path=db_path,
+        )
+        out = router.route(
+            query=query,
+            tier=FAST,
+            job_contract=_job_contract(prompt=query),
+            skill_contract=_skill_contract(),
+        )
+
+        self.assertTrue(out["zero_memory_blocked"])
+        self.assertEqual(out["selected_tool"], OPENAI_PLANNER_TOOL)
+        self.assertNotIn(PERPLEXITY_RESEARCH_TOOL, calls)
+        self.assertTrue(any(row["action"] == "search.zero_memory_block" for row in audit.rows))
 
 
 if __name__ == "__main__":
