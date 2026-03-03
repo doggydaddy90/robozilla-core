@@ -6,6 +6,9 @@ runtime:
   role: dev  # dev|compute|edge
   strict_validation: true
   fail_closed: true
+  compliance_enabled: false
+  container_mode_enabled: false
+  extended_audit: false
 
 service:
   host: localhost

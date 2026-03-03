@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from errors import PolicyViolationError
+from events.event_bus import EventBus
+from events.runtime_event import RuntimeEvent
 
 try:  # pragma: no cover - platform dependent
     import resource as _resource
@@ -104,6 +106,7 @@ class SubprocessModuleExecutor(BaseModuleExecutor):
         memory_soft_limit_bytes: int = _DEFAULT_MEMORY_SOFT_LIMIT_BYTES,
         cpu_time_limit_seconds: int = _DEFAULT_CPU_TIME_LIMIT_SECONDS,
         allow_unsupported_platform: bool = False,
+        event_bus: EventBus | None = None,
         logger: logging.Logger | None = None,
     ):
         self._logger = logger or logging.getLogger(__name__)
@@ -116,6 +119,7 @@ class SubprocessModuleExecutor(BaseModuleExecutor):
         self._memory_soft_limit_bytes = int(memory_soft_limit_bytes)
         self._cpu_time_limit_seconds = int(cpu_time_limit_seconds)
         self._allow_unsupported_platform = bool(allow_unsupported_platform)
+        self._event_bus = event_bus
         self._resource_supported = (_resource is not None) and (os.name != "nt")
         if not self._resource_supported:
             self._logger.warning(
@@ -139,6 +143,13 @@ class SubprocessModuleExecutor(BaseModuleExecutor):
             raise PolicyViolationError("module execution request exceeded max_request_bytes")
 
         env = self._build_clean_env()
+        self._emit_event(
+            RuntimeEvent(
+                event_type="module_spawn",
+                module_name=module_name,
+                metadata={"sandbox_dir": str(self._sandbox_dir)},
+            )
+        )
         popen_kwargs: dict[str, Any] = {
             "args": list(command),
             "stdin": subprocess.PIPE,
@@ -159,6 +170,16 @@ class SubprocessModuleExecutor(BaseModuleExecutor):
             proc.kill()
             _stdout_kill, stderr_kill = proc.communicate()
             stderr_preview = _decode_bytes(stderr_kill, max_bytes=2048)
+            self._emit_event(
+                RuntimeEvent(
+                    event_type="module_timeout_kill",
+                    module_name=module_name,
+                    metadata={
+                        "timeout_seconds": self._timeout_seconds,
+                        "stderr_preview": stderr_preview,
+                    },
+                )
+            )
             raise PolicyViolationError(
                 f"Module '{module_name}' timed out after {self._timeout_seconds:.3f}s; process killed",
                 details={"stderr_preview": stderr_preview},
@@ -241,6 +262,11 @@ class SubprocessModuleExecutor(BaseModuleExecutor):
                 )
 
         return _apply_limits
+
+    def _emit_event(self, event: RuntimeEvent) -> None:
+        if self._event_bus is None:
+            return
+        self._event_bus.emit(event)
 
 
 class ContainerModuleExecutor(BaseModuleExecutor):

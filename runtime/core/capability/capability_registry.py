@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 from types import MappingProxyType
 from typing import Iterable
 
@@ -63,6 +65,20 @@ class CapabilityRegistry:
     def __len__(self) -> int:
         return len(self._ordered)
 
+    def deterministic_hash(self) -> str:
+        rows = []
+        for item in sorted(self._ordered, key=lambda x: x.name):
+            rows.append(
+                {
+                    "name": item.name,
+                    "side_effect_class": item.side_effect_class,
+                    "risk_tier": item.risk_tier,
+                    "strictness_min": item.strictness_min,
+                }
+            )
+        payload = json.dumps(rows, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
 
 def default_kernel_capability_registry() -> CapabilityRegistry:
     return CapabilityRegistry(
@@ -93,4 +109,3 @@ def default_kernel_capability_registry() -> CapabilityRegistry:
             ),
         )
     )
-

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import logging.config
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -23,7 +22,7 @@ from api.dashboard_endpoints import (
 from api.isolation import enforce_route_isolation, is_roland_strict_mode_enabled, run_startup_isolation_check
 from audit.auditLog import AuditLog, verifyAuditChain
 from capability.capability_registry import CapabilityRegistry, default_kernel_capability_registry
-from config.settings import default_config_paths, load_limits_config, load_runtime_config
+from config.config_loader import ConfigLoader, KernelConfig
 from errors import (
     ConflictError,
     ContractViolationError,
@@ -33,6 +32,8 @@ from errors import (
 )
 from evaluator.service import EvaluationService
 from executor.engine import JobEngine
+from events.event_bus import EventBus
+from kernel.kernel_info import build_kernel_info
 from registry.registry import Registry
 from registry.schema_validator import SchemaValidator
 from security.capabilityEnforcer import CapabilityEnforcer
@@ -62,10 +63,13 @@ class AppComponents:
     evaluator: EvaluationService
     schema_validator: SchemaValidator
     registry: Registry
+    config: KernelConfig
     capability_registry: CapabilityRegistry
     artifact_store: ArtifactStore
     audit_log: AuditLog
     capability_enforcer: CapabilityEnforcer
+    event_bus: EventBus
+    isolation_mode: str
 
 
 def _load_logging_config(path: Path) -> dict[str, Any]:
@@ -78,13 +82,6 @@ def _load_logging_config(path: Path) -> dict[str, Any]:
 def _apply_logging_config(logging_config_path: Path) -> None:
     cfg = _load_logging_config(logging_config_path)
     logging.config.dictConfig(cfg)
-
-
-def _env_path(name: str) -> Path | None:
-    v = os.environ.get(name)
-    if not v:
-        return None
-    return Path(v)
 
 
 def _error_payload(err: Exception) -> dict[str, Any]:
@@ -106,16 +103,16 @@ def _error_payload(err: Exception) -> dict[str, Any]:
 
 
 def _build_components() -> AppComponents:
-    default_runtime, default_logging, default_limits = default_config_paths()
-    runtime_cfg_path = _env_path("ROBOZILLA_RUNTIME_CONFIG") or default_runtime
-    logging_cfg_path = _env_path("ROBOZILLA_LOGGING_CONFIG") or default_logging
-    limits_cfg_path = _env_path("ROBOZILLA_LIMITS_CONFIG") or default_limits
+    config = ConfigLoader().load()
+    runtime_cfg_path = config.runtime_config_path
+    logging_cfg_path = config.logging_config_path
+    limits_cfg_path = config.limits_config_path
 
     bootstrap_root = derive_project_root([runtime_cfg_path, logging_cfg_path, limits_cfg_path, Path.cwd()])
     set_project_root(bootstrap_root, freeze=False)
 
-    runtime = load_runtime_config(runtime_cfg_path)
-    limits = load_limits_config(limits_cfg_path)
+    runtime = config.runtime
+    limits = config.limits
 
     enforcement_root = derive_project_root(
         [
@@ -161,7 +158,8 @@ def _build_components() -> AppComponents:
         strict_mode=is_roland_strict_mode_enabled(),
         audit_log=audit_log,
     )
-    capability_enforcer = CapabilityEnforcer(audit_log=audit_log)
+    event_bus = EventBus()
+    capability_enforcer = CapabilityEnforcer(audit_log=audit_log, event_bus=event_bus)
     capability_registry = default_kernel_capability_registry()
 
     engine = JobEngine(
@@ -180,10 +178,13 @@ def _build_components() -> AppComponents:
         evaluator=evaluator,
         schema_validator=schema_validator,
         registry=registry,
+        config=config,
         capability_registry=capability_registry,
         artifact_store=stores.artifacts,
         audit_log=audit_log,
         capability_enforcer=capability_enforcer,
+        event_bus=event_bus,
+        isolation_mode="inprocess",
     )
 
 
@@ -281,6 +282,17 @@ def health() -> dict[str, Any]:
 def verify_audit_chain() -> dict[str, Any]:
     res = verifyAuditChain(_components().audit_log)
     return {"valid": res.valid, "entries": res.entries, "errors": res.errors}
+
+
+@app.get("/kernel/info")
+def kernel_info() -> dict[str, Any]:
+    comps = _components()
+    info = build_kernel_info(
+        config=comps.config,
+        capability_registry=comps.capability_registry,
+        isolation_mode=comps.isolation_mode,
+    )
+    return info.to_dict()
 
 
 @app.post("/jobs")

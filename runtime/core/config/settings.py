@@ -53,6 +53,9 @@ class RuntimeFlags:
     role: str  # dev|compute|edge
     strict_validation: bool
     fail_closed: bool
+    compliance_enabled: bool
+    container_mode_enabled: bool
+    extended_audit: bool
 
 
 @dataclass(frozen=True)
@@ -105,6 +108,9 @@ def load_runtime_config(runtime_config_path: Path) -> RuntimeConfig:
         role=str(runtime_raw.get("role", "dev")),
         strict_validation=bool(runtime_raw.get("strict_validation", True)),
         fail_closed=bool(runtime_raw.get("fail_closed", True)),
+        compliance_enabled=bool(runtime_raw.get("compliance_enabled", False)),
+        container_mode_enabled=bool(runtime_raw.get("container_mode_enabled", False)),
+        extended_audit=bool(runtime_raw.get("extended_audit", False)),
     )
 
     service = ServiceConfig(

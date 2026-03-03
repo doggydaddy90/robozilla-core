@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from errors import PolicyViolationError
+from events.event_bus import EventBus
+from events.runtime_event import RuntimeEvent
 from utils import deep_get
 
 
@@ -29,8 +31,9 @@ class CapabilityEnforcer:
     Every skill execution request must pass through enforceCapability().
     """
 
-    def __init__(self, *, audit_log: Any | None = None):
+    def __init__(self, *, audit_log: Any | None = None, event_bus: EventBus | None = None):
         self._audit = audit_log
+        self._event_bus = event_bus
 
     def _log(self, *, actor: str, action: str, target: str, details: dict[str, Any] | None = None) -> None:
         if self._audit is None:
@@ -38,6 +41,21 @@ class CapabilityEnforcer:
         self._audit.append(actor=actor, action=action, target=target, details=details or {})
 
     def enforceCapability(self, request: CapabilityRequest) -> None:
+        self._emit_event(
+            RuntimeEvent(
+                event_type="capability_request",
+                job_id=self._job_id_from_contract(request.job_contract),
+                module_name=request.skill_id,
+                capability=request.requested_channel,
+                actor_role=request.actor,
+                metadata={
+                    "requested_mcp_id": request.requested_mcp_id,
+                    "requested_mcp_scopes": list(request.requested_mcp_scopes),
+                    "requested_scope_tags": list(request.requested_scope_tags),
+                    "requested_side_effects": bool(request.requested_side_effects),
+                },
+            )
+        )
         job = request.job_contract
         if not isinstance(job, dict):
             self._deny(request, "JobContract is required")
@@ -82,6 +100,16 @@ class CapabilityEnforcer:
         )
 
     def _deny(self, request: CapabilityRequest, reason: str) -> None:
+        self._emit_event(
+            RuntimeEvent(
+                event_type="capability_denied",
+                job_id=self._job_id_from_contract(request.job_contract),
+                module_name=request.skill_id,
+                capability=request.requested_channel,
+                actor_role=request.actor,
+                metadata={"reason": reason, "requested_mcp_id": request.requested_mcp_id},
+            )
+        )
         self._log(
             actor=request.actor,
             action="attempt.denied",
@@ -89,6 +117,17 @@ class CapabilityEnforcer:
             details={"reason": reason, "channel": request.requested_channel, "mcp_id": request.requested_mcp_id},
         )
         raise PolicyViolationError(reason)
+
+    def _emit_event(self, event: RuntimeEvent) -> None:
+        if self._event_bus is None:
+            return
+        self._event_bus.emit(event)
+
+    def _job_id_from_contract(self, job_contract: dict[str, Any] | None) -> str | None:
+        if not isinstance(job_contract, dict):
+            return None
+        job_id = str(deep_get(job_contract, ["metadata", "job_id"])).strip()
+        return job_id or None
 
     def _validate_job_active(self, job: dict[str, Any], request: CapabilityRequest) -> None:
         state = str(deep_get(job, ["spec", "status", "state"]))

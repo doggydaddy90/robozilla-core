@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from audit.auditLog import AuditLog
+from events.event_bus import EventBus
+from events.runtime_event import RuntimeEvent
 from execution.module_executor import BaseModuleExecutor, InProcessModuleExecutor
 from errors import PolicyViolationError
 from security.capabilityEnforcer import CapabilityEnforcer, CapabilityRequest
@@ -32,6 +34,7 @@ class AutonomousLoopController:
         tool_executor: ToolExecutor | None = None,
         module_executor: BaseModuleExecutor | None = None,
         registered_tools: set[str],
+        event_bus: EventBus | None = None,
         actor: str = "runtime.core.autonomous_loop_controller",
         controller_skill_id: str = "autonomous_loop_controller",
         controller_skill_contract: dict[str, Any] | None = None,
@@ -44,6 +47,7 @@ class AutonomousLoopController:
         self._capabilities = capability_enforcer
         self._audit = audit_log
         self._module_executor = module_executor
+        self._event_bus = event_bus
         self._registered_tools = set(registered_tools)
         self._actor = actor
         self._controller_skill_id = controller_skill_id
@@ -77,6 +81,7 @@ class AutonomousLoopController:
         history: list[dict[str, Any]] = []
 
         if _is_kill_switch_active(job_contract):
+            self._emit_kill_switch_event(job_contract=job_contract)
             self._log_step(
                 org_id=org_id,
                 step=0,
@@ -123,6 +128,7 @@ class AutonomousLoopController:
                 )
                 break
             if _is_kill_switch_active(job_contract):
+                self._emit_kill_switch_event(job_contract=job_contract)
                 stop_reason = "kill_switch_active"
                 status = "aborted"
                 self._log_step(
@@ -292,6 +298,21 @@ class AutonomousLoopController:
                 "reason": reason,
                 "target_tool": target_tool,
             },
+        )
+
+    def _emit_kill_switch_event(self, *, job_contract: dict[str, Any]) -> None:
+        if self._event_bus is None:
+            return
+        job_id = str(job_contract.get("metadata", {}).get("job_id", "")).strip()
+        self._event_bus.emit(
+            RuntimeEvent(
+                event_type="kill_switch_activated",
+                job_id=job_id or None,
+                module_name=self._controller_skill_id,
+                capability="loop_control",
+                actor_role=self._actor,
+                metadata={},
+            )
         )
 
 
