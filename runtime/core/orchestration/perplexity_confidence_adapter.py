@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
+from execution.module_executor import BaseModuleExecutor, SubprocessModuleExecutor
 from errors import PolicyViolationError
 from security.capabilityEnforcer import CapabilityEnforcer, CapabilityRequest
 
@@ -22,14 +23,17 @@ class PerplexityConfidenceAdapter:
         self,
         *,
         capability_enforcer: CapabilityEnforcer,
-        tool_executor: ToolExecutor,
+        tool_executor: ToolExecutor | None = None,
+        module_executor: BaseModuleExecutor | None = None,
         actor: str = "runtime.core.perplexity_confidence_adapter",
         skill_id: str = "perplexity_confidence_adapter",
     ):
-        if not callable(tool_executor):
-            raise PolicyViolationError("tool_executor must be callable")
+        if module_executor is None:
+            if not callable(tool_executor):
+                raise PolicyViolationError("tool_executor must be callable")
+            module_executor = SubprocessModuleExecutor(module_runner=tool_executor)
         self._capabilities = capability_enforcer
-        self._tool_executor = tool_executor
+        self._module_executor = module_executor
         self._actor = actor
         self._skill_id = skill_id
 
@@ -59,7 +63,7 @@ class PerplexityConfidenceAdapter:
 
         payload = {"candidate_document": candidate_document}
         try:
-            raw = self._tool_executor(PERPLEXITY_RESEARCH_TOOL, payload)
+            raw = self._module_executor.execute_module(PERPLEXITY_RESEARCH_TOOL, payload)
         except Exception as exc:  # pragma: no cover - covered by behavior test
             raise PolicyViolationError("perplexity_research_tool failed") from exc
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from audit.auditLog import AuditLog
+from execution.module_executor import BaseModuleExecutor, SubprocessModuleExecutor
 from errors import PolicyViolationError
 from security.capabilityEnforcer import CapabilityEnforcer, CapabilityRequest
 
@@ -28,18 +29,21 @@ class AutonomousLoopController:
         *,
         capability_enforcer: CapabilityEnforcer,
         audit_log: AuditLog,
-        tool_executor: ToolExecutor,
+        tool_executor: ToolExecutor | None = None,
+        module_executor: BaseModuleExecutor | None = None,
         registered_tools: set[str],
         actor: str = "runtime.core.autonomous_loop_controller",
         controller_skill_id: str = "autonomous_loop_controller",
         controller_skill_contract: dict[str, Any] | None = None,
         local_reasoning_tool: str = "local_reasoning_tool",
     ):
-        if not callable(tool_executor):
-            raise PolicyViolationError("tool_executor must be callable")
+        if module_executor is None:
+            if not callable(tool_executor):
+                raise PolicyViolationError("tool_executor must be callable")
+            module_executor = SubprocessModuleExecutor(module_runner=tool_executor)
         self._capabilities = capability_enforcer
         self._audit = audit_log
-        self._tool_executor = tool_executor
+        self._module_executor = module_executor
         self._registered_tools = set(registered_tools)
         self._actor = actor
         self._controller_skill_id = controller_skill_id
@@ -262,7 +266,7 @@ class AutonomousLoopController:
             )
         )
 
-        out = self._tool_executor(tool_id, payload)
+        out = self._module_executor.execute_module(tool_id, payload)
         if not isinstance(out, dict):
             raise PolicyViolationError(f"Tool '{tool_id}' returned invalid response type (expected object)")
         return out

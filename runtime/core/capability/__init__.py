@@ -1,0 +1,2 @@
+"""Kernel capability definitions."""
+

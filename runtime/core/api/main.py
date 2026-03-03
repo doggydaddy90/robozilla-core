@@ -22,6 +22,7 @@ from api.dashboard_endpoints import (
 )
 from api.isolation import enforce_route_isolation, is_roland_strict_mode_enabled, run_startup_isolation_check
 from audit.auditLog import AuditLog, verifyAuditChain
+from capability.capability_registry import CapabilityRegistry, default_kernel_capability_registry
 from config.settings import default_config_paths, load_limits_config, load_runtime_config
 from errors import (
     ConflictError,
@@ -61,6 +62,7 @@ class AppComponents:
     evaluator: EvaluationService
     schema_validator: SchemaValidator
     registry: Registry
+    capability_registry: CapabilityRegistry
     artifact_store: ArtifactStore
     audit_log: AuditLog
     capability_enforcer: CapabilityEnforcer
@@ -160,6 +162,7 @@ def _build_components() -> AppComponents:
         audit_log=audit_log,
     )
     capability_enforcer = CapabilityEnforcer(audit_log=audit_log)
+    capability_registry = default_kernel_capability_registry()
 
     engine = JobEngine(
         schema_validator=schema_validator,
@@ -177,6 +180,7 @@ def _build_components() -> AppComponents:
         evaluator=evaluator,
         schema_validator=schema_validator,
         registry=registry,
+        capability_registry=capability_registry,
         artifact_store=stores.artifacts,
         audit_log=audit_log,
         capability_enforcer=capability_enforcer,

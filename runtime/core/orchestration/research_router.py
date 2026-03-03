@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+from execution.module_executor import BaseModuleExecutor, SubprocessModuleExecutor
 from errors import PolicyViolationError
 from search.zero_result_registry import (
     compute_query_signature,
@@ -148,7 +149,8 @@ class ResearchRouter:
         self,
         *,
         capability_enforcer: CapabilityEnforcer,
-        tool_executor: ToolExecutor,
+        tool_executor: ToolExecutor | None = None,
+        module_executor: BaseModuleExecutor | None = None,
         actor: str = "runtime.core.research_router",
         skill_id: str = "research_router",
         thresholds: ResearchThresholds = ResearchThresholds(),
@@ -156,10 +158,12 @@ class ResearchRouter:
         zero_result_registry_path: Path | str | None = None,
         audit_log: Any | None = None,
     ):
-        if not callable(tool_executor):
-            raise PolicyViolationError("tool_executor must be callable")
+        if module_executor is None:
+            if not callable(tool_executor):
+                raise PolicyViolationError("tool_executor must be callable")
+            module_executor = SubprocessModuleExecutor(module_runner=tool_executor)
         self._capabilities = capability_enforcer
-        self._tool_executor = tool_executor
+        self._module_executor = module_executor
         self._actor = actor
         self._skill_id = skill_id
         self._thresholds = thresholds
@@ -383,7 +387,7 @@ class ResearchRouter:
                 raise PolicyViolationError(f"allowed_endpoints missing for tool: {tool_id}")
             enforce_endpoint_allowlist(request_url=request_url, allowed_endpoints=allowed)
 
-        out = self._tool_executor(tool_id, payload)
+        out = self._module_executor.execute_module(tool_id, payload)
         if not isinstance(out, dict):
             raise PolicyViolationError(f"Tool '{tool_id}' returned invalid response type (expected object)")
         return out
