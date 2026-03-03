@@ -13,6 +13,14 @@ import yaml
 from fastapi import Body, FastAPI
 from fastapi.responses import JSONResponse
 
+from api.dashboard_endpoints import (
+    DashboardDataProviders,
+    build_dashboard_router,
+    load_rag_index,
+    load_telemetry_from_audit,
+    load_truth_ledger_from_audit,
+)
+from api.isolation import enforce_route_isolation, is_roland_strict_mode_enabled, run_startup_isolation_check
 from audit.auditLog import AuditLog, verifyAuditChain
 from config.settings import default_config_paths, load_limits_config, load_runtime_config
 from errors import (
@@ -134,6 +142,23 @@ def _build_components() -> AppComponents:
     stores = SQLiteStores(runtime.storage.sqlite_path)
     audit_log = AuditLog(runtime.storage.sqlite_path.with_name("runtime_audit.sqlite"))
     set_audit_logger(audit_log)
+    set_project_root(enforcement_root, freeze=True)
+    run_startup_isolation_check(
+        project_root=enforcement_root,
+        required_paths=[
+            runtime_cfg_path,
+            logging_cfg_path,
+            limits_cfg_path,
+            runtime.registry.schemas_dir,
+            runtime.registry.orgs_dir,
+            runtime.registry.agent_definitions_dir,
+            runtime.registry.skill_contracts_dir,
+            runtime.storage.sqlite_path,
+            runtime.storage.sqlite_path.with_name("runtime_audit.sqlite"),
+        ],
+        strict_mode=is_roland_strict_mode_enabled(),
+        audit_log=audit_log,
+    )
     capability_enforcer = CapabilityEnforcer(audit_log=audit_log)
 
     engine = JobEngine(
@@ -203,6 +228,45 @@ def _components() -> AppComponents:
     return app.state.components
 
 
+def _enforce_legacy_mutation_route(path: str, method: str = "POST") -> None:
+    enforce_route_isolation(
+        path=path,
+        method=method,
+        strict_mode=is_roland_strict_mode_enabled(),
+    )
+
+
+def _dashboard_daily_caps() -> dict[str, Any]:
+    return {
+        "openai": 250000,
+        "perplexity": 150000,
+        "search_api": 100000,
+        "reddit_api": 60000,
+        "youtube_api": 60000,
+        "zlib": "unlimited",
+        "ref_tools": 20000,
+        "other": "unlimited",
+    }
+
+
+def _dashboard_org_policy() -> dict[str, Any] | None:
+    # Read-only API surface; policy can be wired to org-scoped state later.
+    return None
+
+
+app.include_router(
+    build_dashboard_router(
+        providers=DashboardDataProviders(
+            telemetry_records=lambda: load_telemetry_from_audit(audit_db_path=_components().audit_log.path),
+            daily_caps=_dashboard_daily_caps,
+            org_policy=_dashboard_org_policy,
+            rag_index=lambda: load_rag_index(rag_dir=Path("rag")),
+            truth_ledger=lambda: load_truth_ledger_from_audit(audit_db_path=_components().audit_log.path),
+        )
+    )
+)
+
+
 @app.get("/health")
 def health() -> dict[str, Any]:
     """Health check for runtime availability. Returns 200 when registry and stores are loaded."""
@@ -217,6 +281,7 @@ def verify_audit_chain() -> dict[str, Any]:
 
 @app.post("/jobs")
 def submit_job(job: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    _enforce_legacy_mutation_route("/jobs", "POST")
     res = _components().engine.submit_job(job)
     return {"job": res.job}
 
@@ -229,12 +294,14 @@ def get_job(job_id: str) -> dict[str, Any]:
 
 @app.post("/jobs/{job_id}/run")
 def run_job(job_id: str) -> dict[str, Any]:
+    _enforce_legacy_mutation_route("/jobs/{job_id}/run", "POST")
     res = _components().engine.run_job(job_id)
     return {"job": res.job}
 
 
 @app.post("/jobs/{job_id}/stop")
 def stop_job(job_id: str) -> dict[str, Any]:
+    _enforce_legacy_mutation_route("/jobs/{job_id}/stop", "POST")
     res = _components().engine.stop_job(job_id)
     return {"job": res.job}
 
@@ -270,6 +337,7 @@ def _enforce_artifact_policy(artifact: dict[str, Any], *, engine: JobEngine, reg
 
 @app.post("/artifacts")
 def submit_artifact(artifact: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    _enforce_legacy_mutation_route("/artifacts", "POST")
     comps = _components()
     comps.schema_validator.validate("Artifact", artifact)
     _enforce_artifact_policy(artifact, engine=comps.engine, registry=comps.registry)
@@ -285,6 +353,7 @@ def get_artifact(artifact_id: str) -> dict[str, Any]:
 
 @app.post("/evaluations")
 def submit_evaluation(evaluation: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    _enforce_legacy_mutation_route("/evaluations", "POST")
     res = _components().evaluator.submit(evaluation)
     return {"evaluation": res.evaluation, "job": res.job}
 

@@ -9,7 +9,7 @@ if str(CORE_DIR) not in sys.path:
     sys.path.insert(0, str(CORE_DIR))
 
 from errors import PolicyViolationError
-from orchestration.redaction_layer import sanitize_for_ingestion
+from orchestration.redaction_layer import redact_document, sanitize_for_ingestion
 
 
 def _base_document() -> dict[str, object]:
@@ -70,6 +70,26 @@ class RedactionLayerTests(unittest.TestCase):
                 normalized_document=doc,
                 org_policy={"allow_pii_ingestion": False},
             )
+
+    def test_absolute_secret_block_redacts_common_secret_tokens(self) -> None:
+        doc = _base_document()
+        doc["content_blocks"] = [
+            {
+                "fact_text": (
+                    "JWT eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+                    "eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature "
+                    "OAuth bearer abcdefghijklmnop "
+                    "SSH -----BEGIN OPENSSH PRIVATE KEY----- "
+                    "AWS ASIAABCDEFGHIJKLMNOP "
+                    "B64 QWxhZGRpbjpvcGVuIHNlc2FtZQ=="
+                )
+            }
+        ]
+        redacted = redact_document(normalized_document=doc, org_policy={"allow_pii_ingestion": True})
+        text = str(redacted["content_blocks"][0]["fact_text"])
+        self.assertIn("[REDACTED_SECRET]", text)
+        self.assertNotIn("BEGIN OPENSSH PRIVATE KEY", text)
+        self.assertNotIn("ASIAABCDEFGHIJKLMNOP", text)
 
 
 if __name__ == "__main__":

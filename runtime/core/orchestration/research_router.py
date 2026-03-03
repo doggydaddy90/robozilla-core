@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 
 from errors import PolicyViolationError
 from security.capabilityEnforcer import CapabilityEnforcer, CapabilityRequest
+from security.endpoint_allowlist_enforcer import enforce_endpoint_allowlist
 
 RAG_LOOKUP_TOOL = "rag_lookup_tool"
 BOOLEAN_SEARCH_TOOL = "boolean_search_tool"
@@ -33,6 +34,24 @@ CHATGPT_WEB_UI_TOOL = "chatgpt_web_ui_tool"
 MULTI_SURFACE_RECON_TOOL = "multi_surface_recon_tool"
 OPENAI_PLANNER_TOOL = "openai_planner_tool"
 PERPLEXITY_RESEARCH_TOOL = "perplexity_research_tool"
+
+_TOOL_ALLOWED_ENDPOINTS: dict[str, list[str]] = {
+    RAG_LOOKUP_TOOL: ["https://rag.local/query"],
+    BOOLEAN_SEARCH_TOOL: ["https://search.local/boolean"],
+    SEARCH_ENGINE_TOOL: ["https://search.local/query"],
+    ZLIB_SEARCH_TOOL: ["https://z-lib.io/search"],
+    REDDIT_SEARCH_TOOL: ["https://www.reddit.com/search"],
+    YOUTUBE_SEARCH_TOOL: ["https://www.youtube.com/results"],
+    YOUTUBE_TRANSCRIBE_TOOL: ["https://www.youtube.com/watch"],
+    EDGAR_SEARCH_TOOL: ["https://www.sec.gov/edgar/search"],
+    SEMANTIC_SCHOLAR_TOOL: ["https://api.semanticscholar.org/graph/v1/paper/search"],
+    GITHUB_OFFICIAL_TOOL: ["https://api.github.com/search/repositories"],
+    WAYBACK_FRESHNESS_TOOL: ["https://web.archive.org/web"],
+    CHATGPT_WEB_UI_TOOL: ["https://chatgpt.com"],
+    MULTI_SURFACE_RECON_TOOL: ["https://recon.local/aggregate"],
+    OPENAI_PLANNER_TOOL: ["https://planner.local/extract"],
+    PERPLEXITY_RESEARCH_TOOL: ["https://api.perplexity.ai/search"],
+}
 
 
 ToolExecutor = Callable[[str, dict[str, Any]], dict[str, Any]]
@@ -288,6 +307,13 @@ class ResearchRouter:
                 requested_scope_tags=[scope_tag],
             )
         )
+
+        request_url = payload.get("request_url")
+        if isinstance(request_url, str) and request_url.strip():
+            allowed = _TOOL_ALLOWED_ENDPOINTS.get(tool_id)
+            if not isinstance(allowed, list) or not allowed:
+                raise PolicyViolationError(f"allowed_endpoints missing for tool: {tool_id}")
+            enforce_endpoint_allowlist(request_url=request_url, allowed_endpoints=allowed)
 
         out = self._tool_executor(tool_id, payload)
         if not isinstance(out, dict):

@@ -6,6 +6,7 @@ configuration, not state: state lives in the DB-backed stores.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -13,9 +14,9 @@ from typing import Any, Iterable
 import yaml
 
 from errors import PolicyViolationError
-from security.pathGuard import safeRead
+from security.pathGuard import resolve_path, safeRead
 
-REPO_SKILL_CONTRACTS_DIR = Path("/repo/skills/contracts")
+SKILL_CONTRACTS_DIR_ENV = "ROBOZILLA_SKILL_CONTRACTS_DIR"
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,10 @@ def iter_yaml_files(root: Path) -> Iterable[Path]:
 
 
 def select_skill_contracts_dir(bundle_dir: Path) -> Path:
-    """Prefer loading SkillContracts from a mounted repo path if present, else fall back to the bundle path."""
-    if REPO_SKILL_CONTRACTS_DIR.exists():
-        return REPO_SKILL_CONTRACTS_DIR
-    return bundle_dir
+    """Load SkillContracts from env override (if set) else from the configured bundle dir."""
+    override = os.environ.get(SKILL_CONTRACTS_DIR_ENV, "").strip()
+    if override:
+        resolved = resolve_path(Path(override), operation="registry.skill_contracts_dir", require_exists=False)
+        if resolved.exists():
+            return resolved
+    return resolve_path(bundle_dir, operation="registry.skill_contracts_dir", require_exists=False)

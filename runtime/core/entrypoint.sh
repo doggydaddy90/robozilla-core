@@ -6,7 +6,37 @@ set -eu
 : "${API_BIND:=127.0.0.1}"
 : "${API_PORT:=8787}"
 : "${STORAGE_BACKEND:=sqlite}"
-: "${DB_PATH:=/data/robozilla.db}"
+: "${PROJECT_ROOT:=$(pwd)}"
+: "${ROBOZILLA_RUNTIME_CONFIG_OUTPUT:=}"
+: "${ROBOZILLA_STATE_DIR:=}"
+: "${ROBOZILLA_BUNDLE_DIR:=}"
+: "${ROBOZILLA_SCHEMAS_DIR:=}"
+: "${ROBOZILLA_ORGS_DIR:=}"
+: "${ROBOZILLA_AGENTS_DIR:=}"
+: "${ROBOZILLA_SKILLS_DIR:=}"
+
+if [ -z "${ROBOZILLA_STATE_DIR}" ]; then
+  ROBOZILLA_STATE_DIR="${PROJECT_ROOT}/runtime/core/state"
+fi
+if [ -z "${ROBOZILLA_BUNDLE_DIR}" ]; then
+  ROBOZILLA_BUNDLE_DIR="${PROJECT_ROOT}/runtime/core/bundle"
+fi
+if [ -z "${ROBOZILLA_SCHEMAS_DIR}" ]; then
+  ROBOZILLA_SCHEMAS_DIR="${ROBOZILLA_BUNDLE_DIR}/schemas"
+fi
+if [ -z "${ROBOZILLA_ORGS_DIR}" ]; then
+  ROBOZILLA_ORGS_DIR="${ROBOZILLA_BUNDLE_DIR}/orgs"
+fi
+if [ -z "${ROBOZILLA_AGENTS_DIR}" ]; then
+  ROBOZILLA_AGENTS_DIR="${ROBOZILLA_BUNDLE_DIR}/agents/definitions"
+fi
+if [ -z "${ROBOZILLA_SKILLS_DIR}" ]; then
+  ROBOZILLA_SKILLS_DIR="${ROBOZILLA_BUNDLE_DIR}/skills/contracts"
+fi
+if [ -z "${ROBOZILLA_RUNTIME_CONFIG_OUTPUT}" ]; then
+  ROBOZILLA_RUNTIME_CONFIG_OUTPUT="${ROBOZILLA_STATE_DIR}/runtime.generated.yaml"
+fi
+: "${DB_PATH:=${ROBOZILLA_STATE_DIR}/robozilla.db}"
 
 if [ "${MODE}" != "build" ]; then
   echo "MODE must be 'build' (got ${MODE})" >&2
@@ -22,25 +52,27 @@ if [ "${KILL_SWITCH}" = "1" ]; then
   echo "KILL_SWITCH=1; runtime will still start but execution remains contract-deferred (build mode)" >&2
 fi
 
-# Prefer /repo when mounted; fall back to bundle for missing paths.
-# Each path is checked independently so partial repo (e.g. orgs but no agents) still works.
-if [ -d /repo/orgs ]; then
-  ORGS_DIR=/repo/orgs
-else
-  ORGS_DIR=/app/bundle/orgs
-fi
-if [ -d /repo/agents/definitions ]; then
-  AGENTS_DIR=/repo/agents/definitions
-else
-  AGENTS_DIR=/app/bundle/agents/definitions
-fi
-if [ -d /repo/skills/contracts ]; then
-  SKILLS_DIR=/repo/skills/contracts
-else
-  SKILLS_DIR=/app/bundle/skills/contracts
-fi
+python - "${PROJECT_ROOT}" "${ROBOZILLA_STATE_DIR}" "${ROBOZILLA_RUNTIME_CONFIG_OUTPUT}" "${DB_PATH}" "${ROBOZILLA_SCHEMAS_DIR}" "${ROBOZILLA_ORGS_DIR}" "${ROBOZILLA_AGENTS_DIR}" "${ROBOZILLA_SKILLS_DIR}" <<'PY'
+import pathlib
+import sys
 
-cat > /tmp/robozilla-runtime.yaml <<EOF
+root = pathlib.Path(sys.argv[1]).resolve()
+if not root.exists() or not root.is_dir():
+    raise SystemExit(f"PROJECT_ROOT must be an existing directory: {root}")
+if root == pathlib.Path(root.anchor):
+    raise SystemExit(f"Drive-root PROJECT_ROOT is forbidden: {root}")
+
+for raw in sys.argv[2:]:
+    p = pathlib.Path(raw).resolve()
+    try:
+        p.relative_to(root)
+    except ValueError as exc:
+        raise SystemExit(f"Configured path must stay under PROJECT_ROOT: {p}") from exc
+PY
+
+mkdir -p "${ROBOZILLA_STATE_DIR}"
+
+cat > "${ROBOZILLA_RUNTIME_CONFIG_OUTPUT}" <<EOF
 runtime:
   role: dev
   strict_validation: true
@@ -51,10 +83,10 @@ service:
   port: ${API_PORT}
 
 registry:
-  schemas_dir: /app/bundle/schemas
-  orgs_dir: ${ORGS_DIR}
-  agent_definitions_dir: ${AGENTS_DIR}
-  skill_contracts_dir: ${SKILLS_DIR}
+  schemas_dir: ${ROBOZILLA_SCHEMAS_DIR}
+  orgs_dir: ${ROBOZILLA_ORGS_DIR}
+  agent_definitions_dir: ${ROBOZILLA_AGENTS_DIR}
+  skill_contracts_dir: ${ROBOZILLA_SKILLS_DIR}
 
 storage:
   driver: ${STORAGE_BACKEND}
@@ -66,8 +98,9 @@ scheduler:
   poll_interval_seconds: 10
 EOF
 
-export ROBOZILLA_RUNTIME_CONFIG=/tmp/robozilla-runtime.yaml
-export ROBOZILLA_LOGGING_CONFIG=/app/config/logging.yaml
-export ROBOZILLA_LIMITS_CONFIG=/app/config/limits.yaml
+export ROBOZILLA_PROJECT_ROOT="${PROJECT_ROOT}"
+export ROBOZILLA_RUNTIME_CONFIG="${ROBOZILLA_RUNTIME_CONFIG_OUTPUT}"
+: "${ROBOZILLA_LOGGING_CONFIG:=${PROJECT_ROOT}/runtime/core/config/logging.yaml}"
+: "${ROBOZILLA_LIMITS_CONFIG:=${PROJECT_ROOT}/runtime/core/config/limits.yaml}"
 
 exec python -m uvicorn api.main:app --host "${API_BIND}" --port "${API_PORT}"

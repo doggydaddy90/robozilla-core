@@ -1,0 +1,54 @@
+{
+  "tiers": {
+    "fast": {
+      "allowed_operators": ["AND", "OR", "NOT", "PHRASE", "GROUP", "SITE"]
+    },
+    "high": {
+      "allowed_operators": ["AND", "OR", "NOT", "PHRASE", "GROUP", "SITE", "FILETYPE"]
+    },
+    "deep": {
+      "allowed_operators": [
+        "AND",
+        "OR",
+        "NOT",
+        "PHRASE",
+        "GROUP",
+        "GROUP_NESTED",
+        "SITE",
+        "FILETYPE",
+        "AROUND"
+      ]
+    }
+  },
+  "engines": {
+    "google": {
+      "supported_operators": [
+        "AND",
+        "OR",
+        "NOT",
+        "PHRASE",
+        "GROUP",
+        "GROUP_NESTED",
+        "SITE",
+        "FILETYPE",
+        "AROUND"
+      ]
+    },
+    "bing": {
+      "supported_operators": ["AND", "OR", "NOT", "PHRASE", "GROUP", "GROUP_NESTED", "SITE", "FILETYPE"]
+    },
+    "duckduckgo": {
+      "supported_operators": ["AND", "OR", "NOT", "PHRASE", "GROUP", "GROUP_NESTED", "SITE"]
+    },
+    "perplexity": {
+      "supported_operators": ["AND", "OR", "NOT", "PHRASE", "GROUP", "GROUP_NESTED", "SITE"]
+    }
+  },
+  "grouping": {
+    "max_depth": {
+      "fast": 1,
+      "high": 1,
+      "deep": 8
+    }
+  }
+}

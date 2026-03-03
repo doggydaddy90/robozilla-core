@@ -17,6 +17,13 @@ API_KEY_RES = (
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bAIza[0-9A-Za-z\-_]{35}\b"),
 )
+SECRET_RES = (
+    re.compile(r"\bASIA[0-9A-Z]{16}\b"),
+    re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+\b"),  # JWT-like
+    re.compile(r"\b(?:oauth|bearer)\s+[A-Za-z0-9._-]{10,}\b", re.IGNORECASE),
+    re.compile(r"-----BEGIN (?:RSA|OPENSSH|EC|DSA)? ?PRIVATE KEY-----"),
+    re.compile(r"\b[A-Za-z0-9+/]{80,}={0,2}\b"),
+)
 WALLET_RES = (
     re.compile(r"\b0x[a-fA-F0-9]{40}\b"),
     re.compile(r"\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b"),
@@ -35,6 +42,7 @@ REDACTIONS = {
     "street_address": "[REDACTED_ADDRESS]",
     "ssn": "[REDACTED_SSN]",
     "private_name": "[REDACTED_NAME]",
+    "secret": "[REDACTED_SECRET]",
 }
 NAME_CONTEXT_KEYS = {"name", "full_name", "contact_name", "person_name", "author_name", "customer_name"}
 DEFAULT_PUBLIC_FIGURES = {
@@ -115,6 +123,8 @@ def _redact_in_place(node: Any, *, key: str, public_figures: set[str]) -> Any:
     redacted = SSN_RE.sub(REDACTIONS["ssn"], redacted)
     for api_re in API_KEY_RES:
         redacted = api_re.sub(REDACTIONS["api_key"], redacted)
+    for secret_re in SECRET_RES:
+        redacted = secret_re.sub(REDACTIONS["secret"], redacted)
     for wallet_re in WALLET_RES:
         redacted = wallet_re.sub(REDACTIONS["wallet_address"], redacted)
     redacted = ADDRESS_RE.sub(REDACTIONS["street_address"], redacted)
@@ -152,6 +162,9 @@ def _findings_for_text(*, value: str, path: str, key: str, public_figures: set[s
     for api_re in API_KEY_RES:
         for m in api_re.finditer(value):
             out.append(PiiFinding("api_key", path, m.group(0)))
+    for secret_re in SECRET_RES:
+        for m in secret_re.finditer(value):
+            out.append(PiiFinding("secret", path, m.group(0)))
     for wallet_re in WALLET_RES:
         for m in wallet_re.finditer(value):
             out.append(PiiFinding("wallet_address", path, m.group(0)))
